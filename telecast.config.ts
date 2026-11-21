@@ -9,7 +9,7 @@ const config: TelecastConfig = {
   timeZone: "Europe/London",
 
   stickers: [
-    ...Array.from({ length: 10 }, (_, i) => `/theme/stickers/sticker${i + 1}.webp`),
+    ...Array.from({ length: 9 }, (_, i) => `/theme/stickers/sticker${i + 1}.webp`),
     "/theme/stickers/flag.svg",
   ],
   mascot: true,
