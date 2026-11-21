@@ -4,22 +4,24 @@
  * code runs under Node (Docker) and in a Cloudflare Durable Object.
  */
 import config from "../../telecast.config.ts";
-import type { Me, PublicConfig, Role, ServerMessage, State } from "../shared/types.ts";
+import type { Me, Person, PersonRole, PublicConfig, Role, ServerMessage, State } from "../shared/types.ts";
 import { cookie, randomToken, readCookie, seal, unseal } from "./session.ts";
 import { applyPatch, freshState, newAlert, restoreState } from "./state.ts";
 
 export interface Env {
   /** The PIN the organisers type to open the control panel. Falls back to 000000, loudly. */
   TELECAST_PIN?: string;
+  /** Name of the first admin, the one whose PIN is TELECAST_PIN. */
+  TELECAST_ADMIN_NAME?: string;
   /** The address people use, e.g. https://fair.example.org. Needed when a proxy hides it. */
   PUBLIC_URL?: string;
 }
 
 /** What gets written to disk or Durable Object storage. */
 export interface Saved {
-  state: unknown;
-  /** Signs session cookies. Made once on first run, so there's no secret to configure. */
+  state: State;
   secret: string;
+  people?: Person[];
 }
 
 export interface Host {
@@ -29,6 +31,8 @@ export interface Host {
   send(message: string, to: "all" | Role): void;
   /** How many venue screens are connected. */
   displays(): number;
+  /** Names of the screens that are connected, when the host knows them. */
+  screens?(): string[];
   /** Asks for `alarm()` to be called at this time; null cancels. */
   wake(at: number | null): void | Promise<void>;
 }
@@ -54,7 +58,9 @@ const TRY_WINDOW = 10 * 60_000;
 
 /** What's inside a signed-in session cookie. */
 interface Session {
+  id: string;
   name: string;
+  role: PersonRole;
 }
 
 const publicConfig: PublicConfig = {
@@ -101,6 +107,7 @@ export class Telecast {
   /** Recent wrong PINs, by address. In memory: a restart is not a bypass worth worrying about. */
   private readonly tries = new Map<string, number[]>();
   private readonly warned = new Set<string>();
+  private people: Person[] = [];
 
   constructor(
     private readonly host: Host,
@@ -120,15 +127,17 @@ export class Telecast {
       this.state = restoreState(config.defaults, saved.state);
       this.secret = saved.secret ?? "";
     }
-    if (!this.secret) {
-      this.secret = randomToken();
+    this.people = this.readPeople(saved?.people);
+    if (!this.secret || !this.people.length) {
+      this.secret ||= randomToken();
+      if (!this.people.length) this.people = [this.owner()];
       await this.persist();
     }
     await this.armAlert();
   }
 
   private persist(): Promise<void> {
-    return this.host.write({ state: this.state, secret: this.secret });
+    return this.host.write({ state: this.state, secret: this.secret, people: this.people });
   }
 
   /* ---------- live connections ---------- */
@@ -152,7 +161,11 @@ export class Telecast {
 
   /** Call when a page connects or disconnects, so control panels can show how many screens are live. */
   connectionsChanged(): void {
-    const message: ServerMessage = { type: "stats", displays: this.host.displays() };
+    const message: ServerMessage = {
+      type: "stats",
+      displays: this.host.displays(),
+      screens: this.host.screens?.() ?? [],
+    };
     this.host.send(JSON.stringify(message), "control");
   }
 
@@ -234,6 +247,38 @@ export class Telecast {
     return (this.env.TELECAST_PIN ?? "").trim() || FALLBACK_PIN;
   }
 
+  /** The admin that comes from the environment, so a fresh install always has a way in. */
+  private owner(): Person {
+    const name = (this.env.TELECAST_ADMIN_NAME ?? "").trim() || "Admin";
+    return { id: randomToken(4), name: name.slice(0, 40), pin: this.pin(), role: "admin", owner: true };
+  }
+
+  /** Keeps whatever people are on disk, as long as there is still a usable admin. */
+  private readPeople(saved: unknown): Person[] {
+    if (!Array.isArray(saved)) return [];
+    const people: Person[] = [];
+    for (const raw of saved) {
+      const p = raw as Partial<Person>;
+      if (typeof p?.id !== "string" || typeof p?.pin !== "string" || !p.pin) continue;
+      people.push({
+        id: p.id.slice(0, 32),
+        name: (typeof p.name === "string" ? p.name : "Organiser").slice(0, 40),
+        pin: p.pin.slice(0, 40),
+        role: p.role === "controller" ? "controller" : "admin",
+        ...(p.owner ? { owner: true } : {}),
+      });
+    }
+    if (!people.some((p) => p.role === "admin")) return [];
+    if (!people.some((p) => p.owner)) people[0]!.owner = true;
+    return people;
+  }
+
+  private async admin(request: Request): Promise<Session> {
+    const session = await this.user(request);
+    if (session.role !== "admin") throw new HttpError(403, "Only an admin can do that");
+    return session;
+  }
+
   private address(request: Request): string {
     const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
     return request.headers.get("cf-connecting-ip") || forwarded || "local";
@@ -249,8 +294,11 @@ export class Telecast {
 
   private async user(request: Request): Promise<Session> {
     const session = await unseal<Session>(readCookie(request, SESSION_COOKIE), this.secret);
-    if (!session) throw new HttpError(401, "Enter the PIN to make changes");
-    return session;
+    const person = session
+      ? this.people.find((p) => p.id === session.id) ?? this.people.find((p) => p.name === session.name)
+      : undefined;
+    if (!person) throw new HttpError(401, "Enter the PIN to make changes");
+    return { id: person.id, name: person.name, role: person.role };
   }
 
   /* ---------- http ---------- */
@@ -310,7 +358,8 @@ export class Telecast {
       const typed = typeof pin === "string" ? pin.replace(/[\s-]/g, "") : "";
       if (!typed) throw new HttpError(400, "Type the PIN");
 
-      if (!sameSecret(typed, this.pin().replace(/[\s-]/g, ""))) {
+      const person = this.people.find((p) => sameSecret(typed, p.pin.replace(/[\s-]/g, "")));
+      if (!person) {
         const recent = this.tries.get(address) ?? [];
         recent.push(Date.now());
         this.tries.set(address, recent);
@@ -318,12 +367,60 @@ export class Telecast {
       }
 
       this.tries.delete(address);
-      const session = await seal({ name: "Organiser" } satisfies Session, Date.now() + maxAge * 1000, this.secret);
+      const session = await seal(
+        { id: person.id, name: person.name, role: person.role } satisfies Session,
+        Date.now() + maxAge * 1000,
+        this.secret,
+      );
       return json(200, { ok: true }, { "Set-Cookie": cookie(SESSION_COOKIE, session, maxAge, secure) });
     }
 
     if (route === "POST /auth/logout") {
       return json(200, { ok: true }, { "Set-Cookie": cookie(SESSION_COOKIE, "", 0, secure) });
+    }
+
+    throw new HttpError(404, "Not found");
+  }
+
+  private async peopleRoute(request: Request, url: URL, me: Session): Promise<Response> {
+    if (request.method === "GET") return json(200, { people: this.people, me: me.id });
+
+    const body = (request.method === "GET" ? {} : await readJson(request)) as Record<string, unknown>;
+    const pinOf = (raw: unknown) => String(raw ?? "").replace(/[\s-]/g, "").slice(0, 40);
+
+    if (request.method === "POST") {
+      const name = String(body.name ?? "").trim().slice(0, 40);
+      const pin = pinOf(body.pin);
+      if (!name) throw new HttpError(400, "Give them a name");
+      if (pin.length < 4) throw new HttpError(400, "A PIN needs at least 4 characters");
+      if (this.people.some((p) => p.pin === pin)) throw new HttpError(400, "That PIN is already taken");
+      this.people.push({ id: randomToken(4), name, pin, role: body.role === "controller" ? "controller" : "admin" });
+      await this.persist();
+      return json(200, { ok: true });
+    }
+
+    const person = this.people.find((p) => p.id === String(body.id ?? url.searchParams.get("id") ?? ""));
+    if (!person) throw new HttpError(404, "No such person");
+
+    if (request.method === "PATCH") {
+      if (typeof body.name === "string" && body.name.trim()) person.name = body.name.trim().slice(0, 40);
+      if (typeof body.pin === "string") {
+        const pin = pinOf(body.pin);
+        if (pin.length < 4) throw new HttpError(400, "A PIN needs at least 4 characters");
+        if (this.people.some((p) => p !== person && p.pin === pin)) throw new HttpError(400, "That PIN is already taken");
+        person.pin = pin;
+      }
+      // The admin that came from the environment stays an admin, so the panel can't lock itself out.
+      if (!person.owner && (body.role === "admin" || body.role === "controller")) person.role = body.role;
+      await this.persist();
+      return json(200, { ok: true });
+    }
+
+    if (request.method === "DELETE") {
+      if (person.owner) throw new HttpError(400, "The first admin can't be removed");
+      this.people = this.people.filter((p) => p !== person);
+      await this.persist();
+      return json(200, { ok: true });
     }
 
     throw new HttpError(404, "Not found");
@@ -338,8 +435,18 @@ export class Telecast {
 
     if (route === "GET /api/me") {
       const session = await this.user(request);
-      const me: Me = { user: { name: session.name } };
+      const me: Me = { user: { id: session.id, name: session.name, role: session.role } };
       return json(200, me);
+    }
+
+    if (route === "GET /api/screens") {
+      await this.user(request);
+      return json(200, { screens: this.host.screens?.() ?? [] });
+    }
+
+    if (url.pathname === "/api/people") {
+      const me = await this.admin(request);
+      return await this.peopleRoute(request, url, me);
     }
 
     await this.user(request);

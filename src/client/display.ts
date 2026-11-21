@@ -388,8 +388,23 @@ async function prime(): Promise<void> {
 }
 
 // The control panel's preview is this same page; it shouldn't be counted as a venue screen.
+/**
+ * Every screen says who it is, so the panel can list what's connected and where. The name lives in
+ * this browser's storage; a screen that has never been named asks for one.
+ */
+const NAME_KEY = "telecast.screenName";
+
+function screenName(): string {
+  const saved = localStorage.getItem(NAME_KEY)?.trim();
+  if (saved) return saved;
+  const answer = (prompt("What's this screen called?", "Screen") ?? "").trim().slice(0, 40);
+  const name = answer || "Unnamed screen";
+  localStorage.setItem(NAME_KEY, name);
+  return name;
+}
+
 const role: Role = new URLSearchParams(location.search).has("preview") ? "control" : "display";
-const live = connect(role, onMessage);
+const live = connect(role, onMessage, undefined, role === "display" ? () => ({ type: "hello", name: screenName() }) : undefined);
 
 // Draw straight away, then keep checking while the socket is quiet or was never let through.
 void prime();

@@ -525,3 +525,59 @@ form[data-dirty] .button[type="submit"]:not(.ghost) {
 .login .button {
   justify-self: start;
 }
+
+/* ---------- connected screens and people ---------- */
+.screens {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.screens li {
+  background: var(--c-cream);
+  color: var(--c-bark);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  font-weight: 600;
+}
+.people {
+  display: grid;
+  gap: 0.6rem;
+  margin-bottom: 1.2rem;
+}
+.person-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+.person-row input,
+.person-row select,
+.person-add input,
+.person-add select {
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 2px solid currentColor;
+  background: var(--c-cream);
+  color: var(--c-bark);
+  font: inherit;
+  min-width: 0;
+}
+.person-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.6rem;
+  align-items: end;
+}
+.person-add .actions {
+  grid-column: 1 / -1;
+}
+.forgot {
+  margin-top: 1.1rem;
+  font-size: 0.95em;
+}
+.forgot a {
+  color: inherit;
+  font-weight: 700;
+}
