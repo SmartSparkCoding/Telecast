@@ -65,7 +65,7 @@ export interface TelecastConfig extends PublicConfig {
 
 export type ServerMessage =
   | { type: "state"; state: State; config: PublicConfig; now: number; build: string }
-  | { type: "stats"; displays: number }
+  | { type: "stats"; displays: number; screens: string[] }
   | { type: "reload" };
 
 export type Role = "display" | "control";
@@ -73,6 +73,19 @@ export type Role = "display" | "control";
 /**
  * What /api/me returns to a signed-in organiser. There's one role now: whoever knows the PIN.
  */
+/** Everyone who can open the panel. Admins manage people; controllers only change the screens. */
+export type PersonRole = "admin" | "controller";
+
+export interface Person {
+  id: string;
+  name: string;
+  /** Shown back to admins so a forgotten one can be read out, so it is stored as typed. */
+  pin: string;
+  role: PersonRole;
+  /** The one that came from TELECAST_PIN. It can be renamed and re-pinned, but never removed. */
+  owner?: boolean;
+}
+
 export interface Me {
-  user: { name: string };
+  user: { id: string; name: string; role: PersonRole };
 }

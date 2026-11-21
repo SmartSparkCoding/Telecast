@@ -175,6 +175,35 @@
           </div>
         </form>
 
+        <section class="panel" id="screensPanel">
+          <h2>Screens</h2>
+          <p class="hint">Every display that is connected right now.</p>
+          <ul class="screens" id="screensList">
+            <li>No screens are connected right now.</li>
+          </ul>
+        </section>
+
+        <section class="panel" id="peoplePanel" hidden>
+          <h2>People</h2>
+          <p class="hint">
+            Admins can add people, change pins and see them. Controllers can change what is on the
+            screens, but not who else can get in.
+          </p>
+          <div class="people" id="peopleList"></div>
+          <form class="person-add" id="personForm">
+            <label>Name <input id="personName" maxlength="40" required /></label>
+            <label>PIN <input id="personPin" maxlength="40" required /></label>
+            <label
+              >Role
+              <select id="personRole">
+                <option value="controller">Controller</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <div class="actions"><button class="button" type="submit">Add person</button></div>
+          </form>
+        </section>
+
         <section class="panel danger">
           <h2>Start over</h2>
           <p class="hint">Puts every scene back to how it was before anyone changed anything.</p>
@@ -201,6 +230,9 @@
           />
         </label>
         <div class="actions"><button class="button" type="submit" id="pinGo">Open the panel</button></div>
+        <p class="forgot">
+          Forgot your login? Text Jacob on <a href="tel:+447824584569">+44 7824 584569</a>.
+        </p>
       </form>
     </div>
 

@@ -297,3 +297,148 @@ new ResizeObserver(([entry]) => {
 }).observe(preview);
 
 void loadMe();
+
+/* ---------- connected screens ---------- */
+
+interface Person {
+  id: string;
+  name: string;
+  pin: string;
+  role: "admin" | "controller";
+  owner?: boolean;
+}
+
+const screensList = document.getElementById("screensList");
+const peoplePanel = document.getElementById("peoplePanel");
+const peopleList = document.getElementById("peopleList");
+const personForm = document.getElementById("personForm") as HTMLFormElement | null;
+
+function say(message: string): void {
+  toast(message);
+}
+
+async function refreshScreens(): Promise<void> {
+  if (!screensList) return;
+  try {
+    const data = await api<{ screens: string[] }>("GET", "/api/screens");
+    const names = data.screens.length ? data.screens : ["No screens are connected right now."];
+    screensList.replaceChildren(
+      ...names.map((name) => {
+        const li = document.createElement("li");
+        li.textContent = name;
+        return li;
+      }),
+    );
+  } catch {
+    /* signed out: nothing to show yet */
+  }
+}
+
+function personRow(person: Person): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "person-row";
+
+  const name = document.createElement("input");
+  name.value = person.name;
+  name.setAttribute("aria-label", "Name");
+  name.maxLength = 40;
+
+  const pin = document.createElement("input");
+  pin.value = person.pin;
+  pin.setAttribute("aria-label", "PIN");
+  pin.maxLength = 40;
+
+  const role = document.createElement("select");
+  role.setAttribute("aria-label", "Role");
+  for (const value of ["admin", "controller"] as const) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value === "admin" ? "Admin" : "Controller";
+    option.selected = person.role === value;
+    role.append(option);
+  }
+  // The first admin comes from the environment, so it can be renamed and re-pinned but stays an admin.
+  role.disabled = Boolean(person.owner);
+
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "button";
+  save.textContent = "Save";
+  save.addEventListener("click", () => {
+    void (async () => {
+      try {
+        await api("PATCH", "/api/people", {
+          id: person.id,
+          name: name.value,
+          pin: pin.value,
+          role: role.value,
+        });
+        say(`Saved ${name.value}`);
+        await refreshPeople();
+        await loadMe();
+      } catch (err) {
+        say(err instanceof Error ? err.message : "Could not save that");
+      }
+    })();
+  });
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "button ghost";
+  remove.textContent = "Remove";
+  remove.disabled = Boolean(person.owner);
+  remove.addEventListener("click", () => {
+    void (async () => {
+      try {
+        await api("DELETE", "/api/people", { id: person.id });
+        say(`${person.name} removed`);
+        await refreshPeople();
+      } catch (err) {
+        say(err instanceof Error ? err.message : "Could not remove them");
+      }
+    })();
+  });
+
+  row.append(name, pin, role, save, remove);
+  return row;
+}
+
+async function refreshPeople(): Promise<void> {
+  if (!peoplePanel || !peopleList) return;
+  try {
+    const data = await api<{ people: Person[]; me: string }>("GET", "/api/people");
+    peoplePanel.hidden = false;
+    peopleList.replaceChildren(...data.people.map(personRow));
+  } catch {
+    // Controllers and signed-out visitors get 403/401 here; the panel stays hidden.
+    peoplePanel.hidden = true;
+  }
+}
+
+personForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = document.getElementById("personName") as HTMLInputElement | null;
+  const pin = document.getElementById("personPin") as HTMLInputElement | null;
+  const role = document.getElementById("personRole") as HTMLSelectElement | null;
+  if (!name || !pin || !role) return;
+  void (async () => {
+    try {
+      await api("POST", "/api/people", { name: name.value, pin: pin.value, role: role.value });
+      say(`${name.value.trim()} can now sign in`);
+      name.value = "";
+      pin.value = "";
+      await refreshPeople();
+    } catch (err) {
+      say(err instanceof Error ? err.message : "Could not add them");
+    }
+  })();
+});
+
+function refreshPanel(): void {
+  if (document.hidden) return;
+  void refreshScreens();
+  void refreshPeople();
+}
+
+refreshPanel();
+setInterval(refreshPanel, 5000);

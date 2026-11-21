@@ -26,6 +26,7 @@ export function connect(
   role: Role,
   onMessage: (message: ServerMessage) => void,
   onStatus: (online: boolean) => void = () => {},
+  hello?: () => unknown,
 ): Live {
   let socket: WebSocket | undefined;
   let lastHeard = Date.now();
@@ -43,6 +44,7 @@ export function connect(
     ws.addEventListener("open", () => {
       lastHeard = Date.now();
       onStatus(true);
+      if (hello) ws.send(JSON.stringify(hello()));
     });
     ws.addEventListener("message", (event) => {
       lastHeard = Date.now();
