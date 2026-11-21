@@ -1,11 +1,12 @@
-# Artwork credits
+# Artwork
 
 - `background.webp`: supplied by the organisers for this event.
-- `logo.webp`: drawn for this copy of Telecast.
-- `mascot.webp`, `stickers/sticker1-10.webp`: public-domain clip art from
-  [publicdomainvectors.org](https://publicdomainvectors.org). Their collection is released into the
-  public domain, so there is nothing to attribute and no licence to carry. Sources, by sticker:
-  1 candy cane, 2 bauble, 3 gingerbread man, 4 holly, 5 present, 6 snowflake, 7 bell,
-  8 Christmas tree, 9 wreath, 10 hot drink.
+- `logo.webp`, `mascot.webp`, `stickers/sticker1-10.webp`: drawn for this copy of
+  Telecast, so there is nothing to license or credit.
+- `stickers/flag.svg`: drawn for this copy.
 
-If you want different art, drop a `webp` with the same filename over the top and rebuild.
+Stickers are cream linework on flat fills, matching the background's gold-on-navy
+night sky. Every file can be replaced by dropping in a new image with the same
+name: `background.webp` (1920x1080), `logo.webp` (wide, transparent),
+`mascot.webp` (tall, transparent), and `stickers/sticker1-10.webp` (square,
+transparent, artwork kept inside a 392px box on a 440px canvas).
