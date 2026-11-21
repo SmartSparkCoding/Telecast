@@ -183,6 +183,52 @@ export class Telecast {
     return (this.env.PUBLIC_URL || new URL(request.url).origin).replace(/\/$/, "");
   }
 
+  /** Every host this request could legitimately have come from. */
+  private hosts(request: Request): Set<string> {
+    const hosts = new Set<string>();
+    const add = (value: string | null | undefined) => {
+      if (!value) return;
+      for (const part of value.split(",")) {
+        const raw = part.trim();
+        if (!raw) continue;
+        try {
+          hosts.add(new URL(raw.includes("://") ? raw : `http://${raw}`).host.toLowerCase());
+        } catch {
+          // not an address, skip it
+        }
+      }
+    };
+    add(request.url);
+    add(request.headers.get("host"));
+    add(request.headers.get("x-forwarded-host"));
+    add(this.origin(request));
+    return hosts;
+  }
+
+  /**
+   * A write has to come from one of this site's own addresses. Hosts are compared rather than
+   * whole origins, because behind a proxy the browser's https:// origin and the host header the
+   * server sees often disagree about the scheme, which refused every login.
+   */
+  private sameSite(request: Request): boolean {
+    const from = request.headers.get("Origin");
+    if (!from) return true; // no Origin header: a command-line client; the session cookie still guards writes
+    try {
+      return this.hosts(request).has(new URL(from).host.toLowerCase());
+    } catch {
+      return false;
+    }
+  }
+
+  /** True when the browser got here over https, even if a proxy talks plain http to us. */
+  private isSecure(request: Request): boolean {
+    const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+    if (proto === "https" || proto === "http") return proto === "https";
+    const from = request.headers.get("Origin");
+    if (from) return from.startsWith("https:");
+    return new URL(request.url).protocol === "https:";
+  }
+
   private pin(): string {
     return (this.env.TELECAST_PIN ?? "").trim() || FALLBACK_PIN;
   }
@@ -215,8 +261,10 @@ export class Telecast {
       const url = new URL(request.url);
 
       // Session cookies are SameSite=Lax; this also refuses cross-site writes from older browsers.
-      const from = request.headers.get("Origin");
-      if (request.method !== "GET" && from && from !== this.origin(request)) {
+      if (request.method !== "GET" && !this.sameSite(request)) {
+        console.error(
+          `Refused a ${request.method} from ${request.headers.get("Origin")}; this server answers as ${[...this.hosts(request)].join(", ")}. Set PUBLIC_URL if it is behind a proxy.`,
+        );
         throw new HttpError(403, "Cross-site request refused");
       }
 
@@ -231,7 +279,7 @@ export class Telecast {
 
   private async auth(request: Request, url: URL): Promise<Response> {
     const route = `${request.method} ${url.pathname}`;
-    const secure = this.origin(request).startsWith("https:");
+    const secure = this.isSecure(request);
     const maxAge = SESSION_DAYS * 86_400;
 
     if (route === "POST /auth/login") {
