@@ -62,6 +62,37 @@ PORT=8080 TELECAST_PIN=4821 DIR=/opt/telecast bash deploy.sh
 Screens end up on `http://<server>:12345`, the panel on `http://<server>:12345/control`. Logs go to
 `~/telecast/telecast.log`.
 
+That copy dies with the machine. If it should come back after a reboot or a crash, use the service
+installer instead.
+
+### One command, and systemd keeps it up
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SmartSparkCoding/Telecast/main/install-service.sh | sudo bash
+```
+
+Clones into `/opt/telecast`, installs and builds, writes `/etc/telecast.env`, then installs and starts
+`telecast.service` with `Restart=always` and `WantedBy=multi-user.target`, so it starts again on boot.
+It also fetches Node 22 into `/opt/node22` if the machine's own Node is too old, stops a copy
+`deploy.sh` left running, and waits for `/api/health` before it says it worked. Run the same command
+again to update: it pulls, rebuilds and restarts, and it keeps the PIN and port already in
+`/etc/telecast.env`.
+
+```bash
+PORT=8080 TELECAST_PIN=4821 PUBLIC_URL=https://screens.example.com \
+  curl -fsSL https://raw.githubusercontent.com/SmartSparkCoding/Telecast/main/install-service.sh | sudo -E bash
+```
+
+`PUBLIC_URL` matters when something sits in front of the server: the panel refuses writes whose
+`Origin` doesn't match an address the server knows about, and the quietest way to satisfy that behind
+a proxy is to tell it the address people actually type.
+
+| Command | What it does |
+| --- | --- |
+| `journalctl -u telecast -f` | Follow the server's output. |
+| `systemctl restart telecast` | Restart it. |
+| `systemctl disable --now telecast` | Stop it and stop it coming back on boot. |
+
 ### Docker
 
 ```bash
