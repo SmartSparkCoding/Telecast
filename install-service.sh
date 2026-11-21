@@ -129,8 +129,26 @@ if [ -f "$DIR/telecast.pid" ] && kill -0 "$(cat "$DIR/telecast.pid")" 2>/dev/nul
   rm -f "$DIR/telecast.pid"
   sleep 1
 fi
-if command -v ss >/dev/null 2>&1 && ss -ltnH 2>/dev/null | awk '{print $4}' | grep -q ":$PORT$"; then
-  die "Something is already listening on port $PORT. Stop it, or run again with PORT=<other>."
+port_busy() {
+  command -v ss >/dev/null 2>&1 || return 1
+  ss -ltnH 2>/dev/null | awk -v p=":$PORT" '$4 ~ p"$"' | grep -q .
+}
+
+# An older run can outlive its pidfile: the first deploy.sh here left one in a folder
+# that was then deleted, and it sat on the port. If the thing holding the port is this
+# same server, replace it; only refuse when it's somebody else's process.
+if port_busy; then
+  busy_pid="$(ss -ltnpH 2>/dev/null | awk -v p=":$PORT" '$4 ~ p"$"' | grep -o 'pid=[0-9]*' | head -n 1 | cut -d= -f2)"
+  if [ -n "${busy_pid:-}" ] && tr '\0' ' ' < "/proc/$busy_pid/cmdline" 2>/dev/null | grep -q "server.cjs"; then
+    say "Stopping the older Telecast holding port $PORT (pid $busy_pid)"
+    kill "$busy_pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do port_busy || break; sleep 0.25; done
+  fi
+fi
+if port_busy; then
+  echo "Something else is listening on port $PORT:" >&2
+  ss -ltnpH 2>/dev/null | awk -v p=":$PORT" '$4 ~ p"$"' >&2 || true
+  die "Stop that, or run again with PORT=<other>."
 fi
 
 # ---- settings file ----------------------------------------------------------
