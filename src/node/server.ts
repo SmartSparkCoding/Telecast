@@ -31,7 +31,7 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-const sockets = new Map<WebSocket, Role>();
+
 let saving: Promise<void> = Promise.resolve();
 let timer: NodeJS.Timeout | undefined;
 
@@ -61,12 +61,20 @@ const host: Host = {
   },
 
   send(message, to) {
-    for (const [socket, role] of sockets) {
-      if ((to === "all" || to === role) && socket.readyState === WebSocket.OPEN) socket.send(message);
+    for (const [socket, page] of sockets) {
+      if ((to === "all" || to === page.role) && socket.readyState === WebSocket.OPEN) socket.send(message);
     }
   },
 
-  displays: () => [...sockets.values()].filter((role) => role === "display").length,
+  displays: () => [...sockets.values()].filter((page) => page.role === "display").length,
+
+  screens: () => [
+    ...new Set(
+      [...sockets.values()]
+        .filter((page) => page.role === "display" && page.name)
+        .map((page) => page.name),
+    ),
+  ],
 
   wake(at) {
     clearTimeout(timer);
@@ -75,6 +83,8 @@ const host: Host = {
     timer = setTimeout(() => void telecast.alarm(), Math.min(Math.max(0, at - Date.now()), 2 ** 31 - 1));
   },
 };
+
+const sockets = new Map<WebSocket, { role: Role; name: string }>();
 
 const telecast = new Telecast(host, process.env, __BUILD_ID__);
 
@@ -164,7 +174,23 @@ server.on("upgrade", (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, async (ws) => {
     const role: Role = url.searchParams.get("role") === "control" ? "control" : "display";
     ws.on("message", (data) => {
-      if (data.toString() === "ping") ws.send("pong");
+      const text = data.toString();
+      if (text === "ping") return void ws.send("pong");
+      if (text.startsWith("{")) {
+        // A display introduces itself once it knows its name, so the panel can list the screens.
+        try {
+          const hello = JSON.parse(text) as { type?: string; name?: unknown };
+          if (hello.type === "hello" && typeof hello.name === "string") {
+            const page = sockets.get(ws);
+            if (page) {
+              page.name = hello.name.trim().slice(0, 40) || page.name;
+              telecast.connectionsChanged();
+            }
+          }
+        } catch {
+          /* not for us */
+        }
+      }
     });
     ws.on("close", () => {
       sockets.delete(ws);
@@ -172,7 +198,7 @@ server.on("upgrade", (req, socket, head) => {
     });
     ws.on("error", () => ws.terminate());
     ws.send(await telecast.greeting());
-    sockets.set(ws, role);
+    sockets.set(ws, { role, name: "" });
     telecast.connectionsChanged();
   });
 });
