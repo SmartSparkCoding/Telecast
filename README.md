@@ -136,9 +136,12 @@ Everything specific to an event is in two places:
 - **[`public/theme/`](public/theme):** `theme.css` (fonts, colours, backdrop), `logo.webp`,
   `background.webp`, `mascot.webp` and `stickers/`. Replace the files and adjust the CSS variables.
 
-The Christmas artwork in this copy was drawn for the Ashford School Christmas Fair: a night scene
-with string lights, a snowy wordmark, a snowman mascot and eleven stickers (candy cane, bauble, star,
-holly, gingerbread, snowflake, present, mince pie, bell, robin, mulled cup).
+The backdrop and the wordmark in this copy were drawn for the Ashford School Christmas Fair: a night
+scene with string lights and a snowy "Ashford School Christmas Fair" logo. The snowman mascot and the
+ten stickers (candy cane, bauble, gingerbread, holly, present, snowflake, bell, tree, wreath,
+hot drink) come from [publicdomainvectors.org](https://publicdomainvectors.org), which
+releases its clip art into the public domain: no attribution needed, no licence to track. See
+[`public/theme/CREDITS.md`](public/theme/CREDITS.md).
 
 ## Developing
 

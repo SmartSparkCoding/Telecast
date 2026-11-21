@@ -311,8 +311,8 @@ h2 {
 .mascot {
   position: absolute;
   bottom: var(--ticker-h);
-  left: 30%;
-  width: 17rem;
+  left: 7%;
+  width: 12rem;
   transform: translateY(105%);
   animation: peek 16s ease-in-out 3s infinite;
 }
