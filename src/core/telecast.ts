@@ -100,6 +100,7 @@ export class Telecast {
   private loading?: Promise<void>;
   /** Recent wrong PINs, by address. In memory: a restart is not a bypass worth worrying about. */
   private readonly tries = new Map<string, number[]>();
+  private readonly warned = new Set<string>();
 
   constructor(
     private readonly host: Host,
@@ -261,11 +262,28 @@ export class Telecast {
       const url = new URL(request.url);
 
       // Session cookies are SameSite=Lax; this also refuses cross-site writes from older browsers.
-      if (request.method !== "GET" && !this.sameSite(request)) {
-        console.error(
-          `Refused a ${request.method} from ${request.headers.get("Origin")}; this server answers as ${[...this.hosts(request)].join(", ")}. Set PUBLIC_URL if it is behind a proxy.`,
+      const from = request.headers.get("Origin");
+      if (request.method !== "GET" && from && !this.sameSite(request)) {
+        // Two cases get through even though the address doesn't match: signing in, which only
+        // hands out a cookie and is already throttled, and any write carrying a session this
+        // server sealed itself, which a cross-site form can't send because the cookie is Lax. A
+        // proxy that hides the real address therefore can't lock the organiser out of the panel.
+        const signedIn = Boolean(
+          await unseal<Session>(readCookie(request, SESSION_COOKIE), this.secret),
         );
-        throw new HttpError(403, "Cross-site request refused");
+        if (url.pathname !== "/auth/login" && !signedIn) {
+          console.error(
+            `Refused a ${request.method} from ${from}; this server answers as ${[...this.hosts(request)].join(", ")}. Set PUBLIC_URL if it is behind a proxy.`,
+          );
+          throw new HttpError(403, "Cross-site request refused");
+        }
+        const key = `${from} ${url.pathname}`;
+        if (!this.warned.has(key)) {
+          this.warned.add(key);
+          console.warn(
+            `Let a ${request.method} ${url.pathname} through from ${from}, which isn't one of the addresses this server answers as (${[...this.hosts(request)].join(", ")}). Set PUBLIC_URL to quiet this.`,
+          );
+        }
       }
 
       if (url.pathname.startsWith("/auth/")) return await this.auth(request, url);
