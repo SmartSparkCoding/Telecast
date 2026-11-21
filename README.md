@@ -48,6 +48,10 @@ and don't put it on a poster.
 curl -fsSL https://raw.githubusercontent.com/SmartSparkCoding/Telecast/main/deploy.sh | bash
 ```
 
+It needs `git` and `curl` (or `wget`). If the machine has no Node 22 or newer, the script downloads one
+into `~/.local/node` and uses it for that run, so a box still on Node 20 from the distro works as-is.
+Override it with `NODE_DIR` if you'd rather keep it somewhere else.
+
 Clones into `~/telecast`, installs, builds, writes `.env` with `PORT=12345` and `TELECAST_PIN=000000`,
 then runs the server in the background and waits for it to answer. Override with env vars:
 
