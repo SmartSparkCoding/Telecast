@@ -5,7 +5,7 @@
 import type { TelecastConfig } from "./src/shared/types.ts";
 
 const config: TelecastConfig = {
-  eventName: "Haven London",
+  eventName: "Ashford School Christmas Fair",
   timeZone: "Europe/London",
 
   stickers: [
@@ -15,47 +15,45 @@ const config: TelecastConfig = {
   mascot: true,
 
   defaults: {
-    scene: "idle",
+    scene: "rotate",
 
     idle: {
-      message: "Welcome to Haven London!",
+      message: "Welcome to the Christmas Fair!",
       showNext: true,
       stickers: true,
     },
 
     message: {
       kicker: "Announcement",
-      title: "Lunch is ready",
-      body: "Pizza in the main hall.",
-      tone: "orange",
+      title: "Santa's Grotto is open",
+      body: "Slots every half hour in Friars Hall. Limited places on the day.",
+      tone: "red",
     },
 
     countdown: {
-      label: "Hacking ends in",
-      target: Date.parse("2026-11-14T17:00:00Z"),
-      doneText: "Time's up!",
+      label: "The Fair opens in",
+      target: Date.parse("2026-11-28T12:00:00Z"),
+      doneText: "The Fair is open!",
     },
 
     embed: {
-      url: "",
+      url: "https://pfa.navaratne.uk/",
       showClock: false,
     },
 
     schedule: {
-      title: "Haven Line",
-      platform: "Platform 1",
+      title: "Christmas Fair",
+      platform: "Sat 28 Nov",
       items: [
-        { time: "9:00", title: "doors open", detail: "Come and get set up!"},
-        { time: "9:45", title: "opening ceremony", detail: "" },
-        { time: "10:15", title: "form teams & start building", detail: "We'll have icebreakers!" },
-        { time: "10:25", title: "godot & ren'py workshop", detail: "" },
-        { time: "12:00", title: "lunch!", detail: "" },
-        { time: "14:00", title: "art workshop", detail: "" },
-        { time: "17:00", title: "ship projects", detail: "" },
-        { time: "17:15", title: "project demos & voting", detail: "Show off your awesome game!" },
-        { time: "18:30", title: "dinner", detail: "" },
-        { time: "19:00", title: "closing ceremony", detail: "" },
-        { time: "19:30", title: "home time", detail: "" },
+        { time: "12:00", title: "gates open", detail: "Ashford Prep School, Great Chart" },
+        { time: "12:00", title: "school choir", detail: "At the front of school" },
+        { time: "12:30", title: "choir, second set", detail: "Time to be confirmed" },
+        { time: "12:00", title: "Santa's Grotto", detail: "Friars Hall, slots every half hour" },
+        { time: "12:00", title: "fairground rides", detail: "Swing chairs, climbing wall, bouncy castle" },
+        { time: "All day", title: "36 stalls", detail: "Handmade gifts, crafts and wines" },
+        { time: "All day", title: "Nordic cafe", detail: "Friars Hall" },
+        { time: "15:15", title: "raffle drawn", detail: "£1 everyday raffle, £5 super raffle" },
+        { time: "16:00", title: "fair closes", detail: "Thanks for coming!" },
       ],
     },
 
@@ -66,7 +64,7 @@ const config: TelecastConfig = {
 
     ticker: {
       enabled: true,
-      text: "Ada has free Wi-Fi! SSID: ADA-Events Password: Wentworth1837",
+      text: "Raffle tickets £1, super raffle £5, drawn 3:15pm   ·   Santa's Grotto slots every half hour   ·   Nordic cafe in Friars Hall   ·   36 stalls of gifts and crafts",
     },
   },
 };

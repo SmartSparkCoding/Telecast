@@ -1,27 +1,23 @@
 /**
- * Telecast itself: the state, the API and the sign-in flow. It only uses web-standard Request and
+ * Telecast itself: the state, the API and the PIN sign-in. It only uses web-standard Request and
  * Response, and reaches storage, sockets and timers through a small Host interface, so the same
  * code runs under Node (Docker) and in a Cloudflare Durable Object.
  */
 import config from "../../telecast.config.ts";
-import type { Channel, Me, PublicConfig, Role, ServerMessage, State, User } from "../shared/types.ts";
+import type { Me, PublicConfig, Role, ServerMessage, State } from "../shared/types.ts";
 import { cookie, randomToken, readCookie, seal, unseal } from "./session.ts";
-import { Slack, SlackError, type SlackEnv } from "./slack.ts";
 import { applyPatch, freshState, newAlert, restoreState } from "./state.ts";
 
-export interface Env extends SlackEnv {
-  /** Comma-separated Slack user IDs who can always sign in and who choose the organisers' channel. */
-  TELECAST_ADMINS?: string;
-  /** Optional starting channel, used until an admin picks one in the control panel. */
-  SLACK_CHANNEL_ID?: string;
-  /** The address people use, e.g. https://telecast.haven.london. Needed when a proxy hides it. */
+export interface Env {
+  /** The PIN the organisers type to open the control panel. Falls back to 000000, loudly. */
+  TELECAST_PIN?: string;
+  /** The address people use, e.g. https://fair.example.org. Needed when a proxy hides it. */
   PUBLIC_URL?: string;
 }
 
 /** What gets written to disk or Durable Object storage. */
 export interface Saved {
   state: unknown;
-  channel: Channel | null;
   /** Signs session cookies. Made once on first run, so there's no secret to configure. */
   secret: string;
 }
@@ -47,8 +43,19 @@ class HttpError extends Error {
 }
 
 const SESSION_COOKIE = "telecast_session";
-const LOGIN_COOKIE = "telecast_login";
 const SESSION_DAYS = 7;
+
+/** Used when TELECAST_PIN isn't set, so a fresh clone still opens. The host warns about it at boot. */
+const FALLBACK_PIN = "000000";
+
+/** Wrong PINs allowed from one address inside TRY_WINDOW before it has to wait. */
+const TRIES = 8;
+const TRY_WINDOW = 10 * 60_000;
+
+/** What's inside a signed-in session cookie. */
+interface Session {
+  name: string;
+}
 
 const publicConfig: PublicConfig = {
   eventName: config.eventName,
@@ -64,12 +71,6 @@ function json(status: number, body: unknown, headers: Record<string, string> = {
   });
 }
 
-function redirect(location: string, cookies: string[] = []): Response {
-  const headers = new Headers({ Location: location, "Cache-Control": "no-store" });
-  for (const c of cookies) headers.append("Set-Cookie", c);
-  return new Response(null, { status: 302, headers });
-}
-
 async function readJson(request: Request): Promise<unknown> {
   const text = await request.text();
   if (text.length > 100_000) throw new HttpError(413, "That's too much to save at once");
@@ -81,23 +82,31 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
+/** Compares two short strings without leaking where they first differ. */
+function sameSecret(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const left = enc.encode(a);
+  const right = enc.encode(b);
+  let diff = left.length ^ right.length;
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 export class Telecast {
   private state: State = freshState(config.defaults);
-  private channel: Channel | null = null;
   private secret = "";
   private loading?: Promise<void>;
-  private readonly slack: Slack;
-  private readonly admins: Set<string>;
+  /** Recent wrong PINs, by address. In memory: a restart is not a bypass worth worrying about. */
+  private readonly tries = new Map<string, number[]>();
 
   constructor(
     private readonly host: Host,
     private readonly env: Env,
     /** Changes with each deploy; screens reload themselves when they see a new one. */
     private readonly build: string,
-  ) {
-    this.slack = new Slack(env);
-    this.admins = new Set((env.TELECAST_ADMINS ?? "").split(",").map((s) => s.trim()).filter(Boolean));
-  }
+  ) {}
 
   /** Loads saved state once. Everything public awaits this first. */
   ready(): Promise<void> {
@@ -108,11 +117,7 @@ export class Telecast {
     const saved = await this.host.read();
     if (saved) {
       this.state = restoreState(config.defaults, saved.state);
-      this.channel = saved.channel ?? null;
       this.secret = saved.secret ?? "";
-    }
-    if (!this.channel && this.env.SLACK_CHANNEL_ID) {
-      this.channel = { id: this.env.SLACK_CHANNEL_ID, name: "" };
     }
     if (!this.secret) {
       this.secret = randomToken();
@@ -122,7 +127,7 @@ export class Telecast {
   }
 
   private persist(): Promise<void> {
-    return this.host.write({ state: this.state, channel: this.channel, secret: this.secret });
+    return this.host.write({ state: this.state, secret: this.secret });
   }
 
   /* ---------- live connections ---------- */
@@ -178,31 +183,27 @@ export class Telecast {
     return (this.env.PUBLIC_URL || new URL(request.url).origin).replace(/\/$/, "");
   }
 
-  private isAdmin(userId: string): boolean {
-    return this.admins.has(userId);
+  private pin(): string {
+    return (this.env.TELECAST_PIN ?? "").trim() || FALLBACK_PIN;
   }
 
-  /** Admins always get in; everyone else must be in the organisers' channel right now. */
-  private async allowed(userId: string): Promise<boolean> {
-    if (this.isAdmin(userId)) return true;
-    if (!this.channel) return false;
-    return this.slack.isMember(this.channel.id, userId);
+  private address(request: Request): string {
+    const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+    return request.headers.get("cf-connecting-ip") || forwarded || "local";
   }
 
-  private async user(request: Request): Promise<User> {
-    const user = await unseal<User>(readCookie(request, SESSION_COOKIE), this.secret);
-    if (!user) throw new HttpError(401, "Sign in to make changes");
-    // Checked on every request, so leaving the channel takes access away within a minute.
-    if (!(await this.allowed(user.id))) {
-      throw new HttpError(401, "You're no longer in the organisers' channel");
-    }
-    return user;
+  private throttled(address: string): boolean {
+    const now = Date.now();
+    const recent = (this.tries.get(address) ?? []).filter((at) => now - at < TRY_WINDOW);
+    if (recent.length) this.tries.set(address, recent);
+    else this.tries.delete(address);
+    return recent.length >= TRIES;
   }
 
-  private async admin(request: Request): Promise<User> {
-    const user = await this.user(request);
-    if (!this.isAdmin(user.id)) throw new HttpError(403, "Only an admin can change this");
-    return user;
+  private async user(request: Request): Promise<Session> {
+    const session = await unseal<Session>(readCookie(request, SESSION_COOKIE), this.secret);
+    if (!session) throw new HttpError(401, "Enter the PIN to make changes");
+    return session;
   }
 
   /* ---------- http ---------- */
@@ -223,10 +224,6 @@ export class Telecast {
       return await this.api(request, url);
     } catch (err) {
       if (err instanceof HttpError) return json(err.status, { error: err.message });
-      if (err instanceof SlackError) {
-        console.error(err.message);
-        return json(502, { error: "Couldn't reach Slack. Try again in a moment." });
-      }
       console.error(err);
       return json(500, { error: "Something went wrong on the server" });
     }
@@ -234,41 +231,29 @@ export class Telecast {
 
   private async auth(request: Request, url: URL): Promise<Response> {
     const route = `${request.method} ${url.pathname}`;
-    const origin = this.origin(request);
-    const secure = origin.startsWith("https:");
-    const callback = `${origin}/auth/callback`;
-    const fail = (reason: string) => redirect(`/control?error=${reason}`, [cookie(LOGIN_COOKIE, "", 0, secure)]);
+    const secure = this.origin(request).startsWith("https:");
+    const maxAge = SESSION_DAYS * 86_400;
 
-    if (route === "GET /auth/login") {
-      if (!this.slack.configured) return fail("setup");
-      // The state value ties Slack's answer to this browser, so a sign-in can't be started by another site.
-      const state = randomToken(16);
-      const sealed = await seal({ state }, Date.now() + 600_000, this.secret);
-      return redirect(this.slack.authorizeUrl(callback, state), [cookie(LOGIN_COOKIE, sealed, 600, secure)]);
-    }
-
-    if (route === "GET /auth/callback") {
-      const pending = await unseal<{ state: string }>(readCookie(request, LOGIN_COOKIE), this.secret);
-      const code = url.searchParams.get("code");
-      if (url.searchParams.get("error")) return fail("cancelled");
-      if (!code || !pending || pending.state !== url.searchParams.get("state")) return fail("expired");
-
-      let user: User;
-      try {
-        user = await this.slack.identify(code, callback);
-        if (!(await this.allowed(user.id))) {
-          return fail(this.channel || this.admins.size ? "not-member" : "setup");
-        }
-      } catch (err) {
-        console.error(err);
-        return fail("slack");
+    if (route === "POST /auth/login") {
+      const address = this.address(request);
+      if (this.throttled(address)) {
+        throw new HttpError(429, "Too many tries. Wait ten minutes and try again.");
       }
-      const maxAge = SESSION_DAYS * 86_400;
-      const session = await seal(user, Date.now() + maxAge * 1000, this.secret);
-      return redirect("/control", [
-        cookie(SESSION_COOKIE, session, maxAge, secure),
-        cookie(LOGIN_COOKIE, "", 0, secure),
-      ]);
+      const { pin } = (await readJson(request)) as { pin?: unknown };
+      // Spaces and dashes are how people write 012 345 down, so they're ignored.
+      const typed = typeof pin === "string" ? pin.replace(/[\s-]/g, "") : "";
+      if (!typed) throw new HttpError(400, "Type the PIN");
+
+      if (!sameSecret(typed, this.pin().replace(/[\s-]/g, ""))) {
+        const recent = this.tries.get(address) ?? [];
+        recent.push(Date.now());
+        this.tries.set(address, recent);
+        throw new HttpError(401, "That PIN isn't right");
+      }
+
+      this.tries.delete(address);
+      const session = await seal({ name: "Organiser" } satisfies Session, Date.now() + maxAge * 1000, this.secret);
+      return json(200, { ok: true }, { "Set-Cookie": cookie(SESSION_COOKIE, session, maxAge, secure) });
     }
 
     if (route === "POST /auth/logout") {
@@ -283,34 +268,12 @@ export class Telecast {
 
     // What's on screen is public by nature, so reading it needs no sign-in.
     if (route === "GET /api/state") return new Response(this.stateMessage(), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
-    if (route === "GET /api/health") return json(200, { ok: true, displays: this.host.displays() });
+    if (route === "GET /api/health") return json(200, { ok: true, displays: this.host.displays(), pin: Boolean((this.env.TELECAST_PIN ?? "").trim()) });
 
     if (route === "GET /api/me") {
-      const user = await this.user(request);
-      // A channel preset by ID has no name yet; fill it in the first time someone looks.
-      if (this.channel && !this.channel.name) {
-        this.channel = await this.slack.channel(this.channel.id).catch(() => this.channel);
-      }
-      const me: Me = { user: { ...user, admin: this.isAdmin(user.id) }, channel: this.channel };
+      const session = await this.user(request);
+      const me: Me = { user: { name: session.name } };
       return json(200, me);
-    }
-
-    if (route === "GET /api/channels") {
-      await this.admin(request);
-      return json(200, { channels: await this.slack.privateChannels() });
-    }
-
-    if (route === "PUT /api/channel") {
-      await this.admin(request);
-      const { id } = (await readJson(request)) as { id?: unknown };
-      if (typeof id !== "string" || !id) throw new HttpError(400, "Choose a channel");
-      try {
-        this.channel = await this.slack.channel(id);
-      } catch (err) {
-        throw new HttpError(400, err instanceof SlackError ? err.message : "Couldn't use that channel");
-      }
-      await this.persist();
-      return json(200, { channel: this.channel });
     }
 
     await this.user(request);

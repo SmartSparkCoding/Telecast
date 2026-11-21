@@ -9,14 +9,14 @@ const stage = $("#stage");
 
 /** Where stickers may sit on the idle screen: around the edges, clear of the clock in the middle. */
 const STICKER_SLOTS = [
-  { x: 4, y: 6, w: 13 },
-  { x: 9, y: 39, w: 12 },
-  { x: 3, y: 71, w: 13 },
-  { x: 22, y: 9, w: 9 },
-  { x: 85, y: 6, w: 13 },
-  { x: 80, y: 40, w: 12 },
-  { x: 86, y: 71, w: 13 },
-  { x: 70, y: 10, w: 9 },
+  { x: 4, y: 15, w: 13 },
+  { x: 9, y: 42, w: 12 },
+  { x: 3, y: 70, w: 13 },
+  { x: 22, y: 19, w: 9 },
+  { x: 85, y: 15, w: 13 },
+  { x: 80, y: 42, w: 12 },
+  { x: 86, y: 70, w: 13 },
+  { x: 70, y: 20, w: 9 },
 ];
 
 let state: State | null = null;
@@ -126,7 +126,7 @@ function renderSchedule(s: State) {
     }),
   );
   // Shrink the type as rows are added so the whole day always fits on one screen.
-  const size = Math.min(2.9, Math.max(1.1, 42 / (1.85 * Math.max(items.length, 1))));
+  const size = Math.min(2.9, Math.max(1.1, 36 / (1.85 * Math.max(items.length, 1))));
   $(".board").style.setProperty("--fs", `${size}rem`);
   scheduleMinute = -1;
 }
@@ -289,19 +289,19 @@ function tick() {
 /* ---------- decoration ---------- */
 
 function plantLeaves() {
-  const colours = ["--c-yellow", "--c-orange-mid", "--c-gold", "--c-orange-bright", "--c-butter"];
+  const colours = ["#fff8ec", "#e8f4fd", "#cfe3f2", "#fffdf6"];
   const layer = $("#leaves");
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 26; i++) {
     const leaf = document.createElement("i");
     leaf.className = "leaf";
     leaf.style.cssText = `
       --x: ${rand(0, 100)}%;
-      --size: ${rand(1.2, 2.6)}rem;
+      --size: ${rand(0.45, 1.3)}rem;
       --colour: var(${pick(colours)});
       --dur: ${rand(11, 22)}s;
       --delay: ${-rand(0, 22)}s;
-      --sway: ${rand(2, 7)}rem;
-      --spin: ${rand(-540, 540)}deg;`;
+      --sway: ${rand(1, 4)}rem;
+      --spin: ${rand(-180, 180)}deg;`;
     layer.append(leaf);
   }
 }
@@ -354,9 +354,12 @@ mascot.addEventListener("animationiteration", () => {
 
 /* ---------- connection ---------- */
 
+let seenState = false;
+
 function onMessage(message: ServerMessage) {
   if (message.type === "reload") return location.reload();
   if (message.type !== "state") return;
+  seenState = true;
   // A new build means new display code, so pick it up.
   if (build && message.build !== build) return location.reload();
   build = message.build;
@@ -370,9 +373,29 @@ function onMessage(message: ServerMessage) {
   render(state);
 }
 
+/**
+ * The same state over plain HTTP. Some venue networks block WebSockets (a school proxy, a locked
+ * down browser), and then the socket's first message never arrives, which used to leave the screen
+ * showing nothing but the backdrop. Fetching it means a screen draws either way.
+ */
+async function prime(): Promise<void> {
+  try {
+    const res = await fetch("/api/state", { cache: "no-store" });
+    if (res.ok) onMessage((await res.json()) as ServerMessage);
+  } catch {
+    // Offline, or the server restarted. The loop below tries again.
+  }
+}
+
 // The control panel's preview is this same page; it shouldn't be counted as a venue screen.
 const role: Role = new URLSearchParams(location.search).has("preview") ? "control" : "display";
 const live = connect(role, onMessage);
+
+// Draw straight away, then keep checking while the socket is quiet or was never let through.
+void prime();
+setInterval(() => {
+  if (!seenState || live.silence() > 40_000) void prime();
+}, 8000);
 
 // A page kept in the browser's back/forward cache shouldn't go on counting as a connected screen.
 addEventListener("pagehide", () => live.close());

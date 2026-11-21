@@ -2,7 +2,7 @@
  * The organisers' control panel. Each form edits one section of the shared state and saves it with
  * a PATCH; the server then pushes the result to every screen (and back here) at once.
  */
-import type { Channel, Content, Me, ScheduleItem, Scene, State } from "../shared/types.ts";
+import type { Content, Me, ScheduleItem, Scene, State } from "../shared/types.ts";
 import { $, $$, connect } from "./live.ts";
 
 type Section = Exclude<keyof Content, "scene">;
@@ -52,76 +52,53 @@ async function run(action: () => Promise<unknown>, done?: string): Promise<boole
 
 /* ---------- signing in ---------- */
 
-const SIGN_IN_PROBLEMS: Record<string, string> = {
-  "not-member": "You're not in the organisers' Slack channel, so you can't use this panel. Ask an organiser to add you, then sign in again.",
-  setup: "Sign-in isn't set up yet. Whoever runs this Telecast needs to add its Slack details and an admin.",
-  cancelled: "Sign-in was cancelled.",
-  expired: "That sign-in took too long. Try again.",
-  slack: "Couldn't reach Slack. Try again in a moment.",
-};
-
 function showSignIn(reason?: string) {
-  $("#loginReason").textContent = reason ?? "Sign in with Slack to change what's on the screens.";
+  $("#loginReason").textContent = reason ?? "Type the PIN to change what's on the screens.";
   $("#login").hidden = false;
+  $<HTMLInputElement>("#pin").focus();
 }
 
 async function loadMe() {
-  const problem = new URLSearchParams(location.search).get("error");
-  if (problem) history.replaceState(null, "", location.pathname);
-  const res = await fetch("/api/me");
+  const res = await fetch("/api/me", { cache: "no-store" });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
-    return showSignIn(problem ? SIGN_IN_PROBLEMS[problem] : res.status === 401 ? undefined : data.error);
+    return showSignIn(res.status === 401 ? undefined : data.error);
   }
   me = (await res.json()) as Me;
   $("#login").hidden = true;
-
-  const who = $("#who");
-  who.hidden = false;
+  $("#who").hidden = false;
   $("#whoName").textContent = me.user.name;
-  const picture = $<HTMLImageElement>("#whoPicture");
-  picture.hidden = !me.user.picture;
-  if (me.user.picture) picture.src = me.user.picture;
-
-  await renderAccess();
 }
+
+$("#pinForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const input = $<HTMLInputElement>("#pin");
+  const button = $<HTMLButtonElement>("#pinGo");
+  button.disabled = true;
+  void (async () => {
+    try {
+      const res = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: input.value }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "That PIN isn't right");
+      input.value = "";
+      await loadMe();
+      toast("Signed in");
+    } catch (err) {
+      $("#loginReason").textContent = (err as Error).message;
+      input.select();
+    } finally {
+      button.disabled = false;
+    }
+  })();
+});
 
 $("#signOut").addEventListener("click", async () => {
   await fetch("/auth/logout", { method: "POST" });
   location.reload();
-});
-
-/* ---------- who can use the panel ---------- */
-
-async function renderAccess() {
-  if (!me) return;
-  const { channel, user } = me;
-  $("#accessSummary").textContent = channel
-    ? `Anyone in the private Slack channel #${channel.name || channel.id} can sign in here.`
-    : "No Slack channel has been chosen yet, so only admins can sign in.";
-  $("#accessForm").hidden = !user.admin;
-  if (!user.admin) return;
-
-  const select = $<HTMLSelectElement>("#channel");
-  try {
-    const { channels } = await api<{ channels: Channel[] }>("GET", "/api/channels");
-    select.replaceChildren(
-      new Option(channels.length ? "Choose a channel…" : "The bot isn't in any private channels yet", ""),
-      ...channels.map((c) => new Option(`#${c.name}`, c.id, false, c.id === channel?.id)),
-    );
-  } catch (err) {
-    select.replaceChildren(new Option((err as Error).message, ""));
-  }
-}
-
-$("#accessForm").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const id = $<HTMLSelectElement>("#channel").value;
-  void run(async () => {
-    const { channel } = await api<{ channel: Channel }>("PUT", "/api/channel", { id });
-    if (me) me.channel = channel;
-    await renderAccess();
-  }, "Organisers' channel saved");
 });
 
 /* ---------- forms ---------- */

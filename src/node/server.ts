@@ -179,14 +179,11 @@ server.on("upgrade", (req, socket, head) => {
 
 async function main() {
   await telecast.ready();
-  if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET || !process.env.SLACK_BOT_TOKEN) {
+  if (!process.env.TELECAST_PIN?.trim()) {
     console.warn(
-      "Slack isn't set up, so nobody can sign in to the control panel yet. " +
-        "Set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_BOT_TOKEN (see README).",
+      "TELECAST_PIN isn't set, so the control panel opens with the default PIN 000000. " +
+        "Set TELECAST_PIN before the doors open.",
     );
-  }
-  if (!process.env.TELECAST_ADMINS && !process.env.SLACK_CHANNEL_ID) {
-    console.warn("Set TELECAST_ADMINS to your Slack user ID so you can sign in and choose the organisers' channel.");
   }
   server.listen(PORT, () => console.log(`Telecast: screens on http://localhost:${PORT}, control panel on /control`));
 }
