@@ -24,6 +24,21 @@ One deployment runs one event.
 On top of any scene: a **flash announcement** (takes over for a set time, then goes away) and a
 scrolling **ticker** along the bottom.
 
+## Who can get in
+
+`TELECAST_PIN` is the first admin's PIN, and `TELECAST_ADMIN_NAME` names them. Everyone else is
+added from the **People** panel in `/control`: give them a name, a PIN of their own, and a role.
+
+- **Admins** change what is on the screens, add people, change anyone's PIN, and read PINs back.
+- **Controllers** change what is on the screens. They can't add people or see anyone else's PIN.
+
+PINs are stored as typed in `state.json`, because an admin has to be able to read one out when
+somebody forgets theirs. Keep that file to yourself. The first admin can be renamed and re-PINned
+but never removed, so the panel can't lock itself out.
+
+Each screen names itself the first time it is opened (a prompt, remembered in that browser's
+storage), and the **Screens** panel lists every display that is connected right now.
+
 ## The PIN
 
 No accounts, no Slack app. The control panel asks for one PIN, and everyone who knows it can change
