@@ -17,7 +17,6 @@
       <p class="status" id="status" data-state="connecting">Connecting…</p>
       <div class="top-actions">
         <span class="who" id="who" hidden>
-          <img id="whoPicture" alt="" width="28" height="28" hidden />
           <span id="whoName"></span>
           <button type="button" id="signOut">Sign out</button>
         </span>
@@ -176,19 +175,6 @@
           </div>
         </form>
 
-        <section class="panel">
-          <h2>Who can use this panel</h2>
-          <p class="hint" id="accessSummary"></p>
-          <form id="accessForm" hidden>
-            <label
-              >Organisers' channel
-              <select id="channel" required></select>
-            </label>
-            <p class="hint">Only private channels the Telecast bot has been invited to are listed. Admins can always sign in.</p>
-            <div class="actions"><button class="button" type="submit">Save</button></div>
-          </form>
-        </section>
-
         <section class="panel danger">
           <h2>Start over</h2>
           <p class="hint">Puts every scene back to how it was before anyone changed anything.</p>
@@ -198,11 +184,24 @@
     </main>
 
     <div class="login" id="login" hidden>
-      <div class="panel">
+      <form class="panel" id="pinForm">
         <h2>Organisers only</h2>
-        <p id="loginReason"></p>
-        <a class="button" href="/auth/login">Sign in with Slack</a>
-      </div>
+        <p id="loginReason">Type the PIN to change what's on the screens.</p>
+        <label class="pin-field"
+          >PIN
+          <input
+            id="pin"
+            type="password"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            pattern="[0-9]*"
+            maxlength="12"
+            required
+            autofocus
+          />
+        </label>
+        <div class="actions"><button class="button" type="submit" id="pinGo">Open the panel</button></div>
+      </form>
     </div>
 
     <p class="toast" id="toast" role="status" hidden></p>

@@ -54,7 +54,7 @@ h2 {
   position: absolute;
   inset: -3%;
   background:
-    radial-gradient(ellipse at 50% 45%, transparent 35%, rgb(107 52 20 / 0.45) 100%),
+    radial-gradient(ellipse at 50% 45%, transparent 40%, rgb(4 16 20 / 0.6) 100%),
     var(--backdrop) center / cover;
   animation: drift 60s ease-in-out infinite alternate;
 }
@@ -64,7 +64,7 @@ h2 {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgb(60 26 6 / 0.5);
+  background: rgb(4 16 20 / 0.55);
   opacity: 0;
   transition: opacity 0.8s;
 }
@@ -95,8 +95,9 @@ h2 {
   width: var(--size);
   height: var(--size);
   background: var(--colour);
-  border-radius: 0 85% 0 85%;
-  opacity: 0.85;
+  border-radius: 50%;
+  opacity: 0.9;
+  filter: blur(0.2px);
   animation: fall var(--dur) linear var(--delay) infinite;
 }
 
@@ -344,7 +345,8 @@ h2 {
 
 .schedule h2 {
   margin-top: 1.6rem;
-  font-size: 9rem;
+  font-size: 6.6rem;
+  line-height: 1.02;
   text-shadow: 0 0.4rem 0 var(--c-bark);
 }
 
@@ -387,7 +389,7 @@ h2 {
 
 /* The station departure board from the main site, sized for a wall. */
 .board {
-  --fs: 2.2rem;
+  --fs: 1.95rem;
   padding: 1rem;
   background: var(--c-night);
   border: 0.6rem solid var(--c-bark);

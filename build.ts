@@ -13,7 +13,8 @@ await build({
   outdir: "dist/public",
   bundle: true,
   format: "esm",
-  target: "es2022",
+  // es2019 so an older school or venue browser can still run the display.
+  target: "es2019",
   minify: true,
   logLevel: "warning",
 });

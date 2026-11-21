@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": { "lib": ["ES2023"], "types": ["node"] },
-  "include": ["src/node", "src/core", "src/shared", "scripts", "telecast.config.ts", "build.ts"]
+  "include": ["src/node", "src/core", "src/shared", "telecast.config.ts", "build.ts"]
 }

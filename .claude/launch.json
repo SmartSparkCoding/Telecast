@@ -2,15 +2,27 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "telecast (pretend Slack)",
+      "name": "telecast (node)",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["scripts/dev-mock.ts"],
-      "port": 8080
+      "runtimeArgs": [
+        "dist/server.cjs"
+      ],
+      "port": 12345,
+      "env": {
+        "TELECAST_PIN": "000000",
+        "PORT": "12345"
+      }
     },
     {
       "name": "telecast (workers)",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["exec", "wrangler", "dev", "--port", "8788"],
+      "runtimeArgs": [
+        "exec",
+        "wrangler",
+        "dev",
+        "--port",
+        "8788"
+      ],
       "port": 8788
     }
   ]

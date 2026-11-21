@@ -1,10 +1,11 @@
 # Telecast
 
 Live screens for an event venue, with a control panel for the organisers. Built for
-[Haven London](https://haven.london); made so other events can run their own.
+[Haven London](https://haven.london); this copy runs the
+[Ashford School Christmas Fair](https://pfa.navaratne.uk/).
 
 - `/` is the screen. Open it on each TV or projector and click once (or press F) to go full screen.
-- `/control` is the organisers' panel. Sign in with Slack; it works on a phone, and every change
+- `/control` is the organisers' panel. Type the PIN to get in; it works on a phone, and every change
   reaches every screen straight away.
 
 One deployment runs one event.
@@ -23,31 +24,39 @@ One deployment runs one event.
 On top of any scene: a **flash announcement** (takes over for a set time, then goes away) and a
 scrolling **ticker** along the bottom.
 
-## Who can use the control panel
+## The PIN
 
-Access follows a **private Slack channel**: anyone in it can sign in, and anyone removed from it
-loses access within a minute. Admins (listed in `TELECAST_ADMINS`) can always sign in, and choose
-the channel from the control panel under "Who can use this panel".
-
-### Setting up Slack
-
-1. Create a Slack app from [`slack-manifest.yml`](slack-manifest.yml), changing the redirect URL to
-   `https://<your address>/auth/callback`.
-2. Install it to the workspace. Copy the **client ID** and **client secret** (Basic Information) and
-   the **bot token** (OAuth & Permissions).
-3. Invite the bot to the organisers' private channel: `/invite @Telecast`.
-4. Set the variables below, with your own Slack member ID in `TELECAST_ADMINS`.
-5. Open `/control`, sign in, and pick the channel.
+No accounts, no Slack app. The control panel asks for one PIN, and everyone who knows it can change
+what's on the screens.
 
 | Variable | Purpose |
 | --- | --- |
-| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` | The Slack app, for "Sign in with Slack". |
-| `SLACK_BOT_TOKEN` | The bot token (`xoxb-…`), for checking who is in the channel. |
-| `TELECAST_ADMINS` | Comma-separated Slack member IDs. |
-| `SLACK_CHANNEL_ID` | Optional. A starting channel, used until an admin picks one. |
+| `TELECAST_PIN` | The panel's PIN. If it isn't set it falls back to `000000`, and the server warns on boot. |
 | `PUBLIC_URL` | Optional. The public address, if a proxy in front doesn't pass it along. |
+| `PORT` | Optional. Defaults to `8080`; the deploy script uses `12345`. |
+| `DATA_DIR` | Optional. Where the state and cookie key are kept. Defaults to `./data`. |
+
+Eight wrong tries from one address locks that address out for ten minutes. The PIN is only a lock on
+the control panel, so treat it like a door code: change it from the default before the doors open,
+and don't put it on a poster.
 
 ## Hosting
+
+### One command on a Linux server
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SmartSparkCoding/Telecast/main/deploy.sh | bash
+```
+
+Clones into `~/telecast`, installs, builds, writes `.env` with `PORT=12345` and `TELECAST_PIN=000000`,
+then runs the server in the background and waits for it to answer. Override with env vars:
+
+```bash
+PORT=8080 TELECAST_PIN=4821 DIR=/opt/telecast bash deploy.sh
+```
+
+Screens end up on `http://<server>:12345`, the panel on `http://<server>:12345/control`. Logs go to
+`~/telecast/telecast.log`.
 
 ### Docker
 
@@ -59,19 +68,19 @@ docker build -t telecast .
 docker run -p 8080:8080 --env-file .env -v telecast:/data telecast
 ```
 
-The volume at `/data` keeps what's on screen, the chosen channel and the cookie-signing key across
-redeploys. `PORT` and `DATA_DIR` can be changed if needed. A proxy in front must allow WebSockets on
-`/ws` and pass `X-Forwarded-Proto` and `X-Forwarded-Host` (or set `PUBLIC_URL`).
+The volume at `/data` keeps what's on screen and the cookie-signing key across redeploys. `PORT` and
+`DATA_DIR` can be changed if needed. A proxy in front must allow WebSockets on `/ws` and pass
+`X-Forwarded-Proto` and `X-Forwarded-Host` (or set `PUBLIC_URL`).
 
 ### Cloudflare Workers
 
 Runs as a Worker with static assets and one Durable Object (works on the free plan).
 
 ```bash
-pnpm exec wrangler secret put SLACK_CLIENT_ID
+pnpm exec wrangler secret put TELECAST_PIN
 ```
 
-Repeat for `SLACK_CLIENT_SECRET`, `SLACK_BOT_TOKEN` and `TELECAST_ADMINS`, then:
+Then:
 
 ```bash
 pnpm deploy:worker
@@ -79,7 +88,9 @@ pnpm deploy:worker
 
 Add your domain under the Worker's settings, or as a `routes` entry in `wrangler.jsonc`.
 
-Either way, screens reconnect by themselves and reload by themselves after a redeploy.
+Either way, screens reconnect by themselves and reload by themselves after a redeploy. A screen also
+pulls `/api/state` over plain HTTP on load and every few seconds, so it still shows something on a
+network that blocks WebSockets.
 
 ## Making it yours
 
@@ -90,27 +101,28 @@ Everything specific to an event is in two places:
 - **[`public/theme/`](public/theme):** `theme.css` (fonts, colours, backdrop), `logo.webp`,
   `background.webp`, `mascot.webp` and `stickers/`. Replace the files and adjust the CSS variables.
 
-The Haven London stickers are from [hackclub/site](https://github.com/hackclub/site/tree/main/public/assets).
+The Christmas artwork in this copy was drawn for the Ashford School Christmas Fair: a night scene
+with string lights, a snowy wordmark, a snowman mascot and eleven stickers (candy cane, bauble, star,
+holly, gingerbread, snowflake, present, mince pie, bell, robin, mulled cup).
 
 ## Developing
 
-Needs Node 22.18 or newer and pnpm.
+Needs Node 22.18 or newer.
 
 ```bash
-pnpm install
+npm install
 ```
 
 ```bash
-pnpm dev:mock
+npm run build && PORT=12345 TELECAST_PIN=000000 npm start
 ```
 
-`dev:mock` runs Telecast on port 8080 against a pretend Slack, so you can sign in as an admin, a
-channel member or an outsider without a real Slack app. `pnpm dev` uses real credentials from
-`.env`; `pnpm dev:worker` runs the Cloudflare version locally (credentials in `.dev.vars`).
+`npm run dev` builds and starts in one go, reading `.env` if there is one. `npm run dev:worker` runs
+the Cloudflare version locally.
 
 | Folder | What's in it |
 | --- | --- |
-| `src/core` | The state, API and sign-in, written against web standards so both hosts share it. |
+| `src/core` | The state, API and PIN sign-in, written against web standards so both hosts share it. |
 | `src/node` | The Docker host: HTTP, WebSockets, a JSON file for storage. |
 | `src/worker` | The Cloudflare host: a Worker and a Durable Object. |
 | `src/client` | The screen (`display.ts`) and control panel (`control.ts`). |
@@ -120,4 +132,4 @@ channel member or an outsider without a real Slack app. `pnpm dev` uses real cre
 To add a scene: a `<section class="scene" data-scene="…">` in `public/index.html`, its type in
 `src/shared/types.ts`, its clean-up rule in `src/core/state.ts`, and a form in `public/control.html`.
 
-`pnpm typecheck` checks all three targets.
+`npm run typecheck` checks all three targets.

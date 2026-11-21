@@ -70,20 +70,9 @@ export type ServerMessage =
 
 export type Role = "display" | "control";
 
-export interface Channel {
-  id: string;
-  name: string;
-}
-
-export interface User {
-  id: string;
-  name: string;
-  picture: string;
-}
-
-/** What /api/me returns to a signed-in organiser. */
+/**
+ * What /api/me returns to a signed-in organiser. There's one role now: whoever knows the PIN.
+ */
 export interface Me {
-  user: User & { admin: boolean };
-  /** The private Slack channel whose members may use the control panel. */
-  channel: Channel | null;
+  user: { name: string };
 }

@@ -9,22 +9,23 @@
   --font-body: "Jua", ui-rounded, system-ui, sans-serif;
   --font-board: "Doto", ui-monospace, monospace;
 
-  --c-green: #b8c220;
-  --c-green-deep: #97a01a;
-  --c-green-dark: #6f7612;
-  --c-orange-deep: #ed5615;
-  --c-orange-bright: #fa681b;
-  --c-orange-mid: #fc8616;
-  --c-yellow: #ffd059;
-  --c-butter: #ffe382;
-  --c-cream: #fff6dc;
-  --c-gold: #fba71f;
-  --c-brown-dark: #b8774a;
-  --c-brown-light: #dda47d;
-  --c-bark: #6b3414;
-  --c-teal: #2cbf90;
-  --c-night: #2a1a10;
-  --c-red: #d92b3a;
+  /* Christmas Fair palette: fir green, holly red, gold, cream, gingerbread. */
+  --c-green: #2f8f5b;
+  --c-green-deep: #23724a;
+  --c-green-dark: #16553a;
+  --c-orange-deep: #c1121f;
+  --c-orange-bright: #d62839;
+  --c-orange-mid: #e34b3f;
+  --c-yellow: #f7c948;
+  --c-butter: #ffe9b0;
+  --c-cream: #fff8ec;
+  --c-gold: #e8b23a;
+  --c-brown-dark: #a9744c;
+  --c-brown-light: #c99a6e;
+  --c-bark: #3a2012;
+  --c-teal: #3fa7a0;
+  --c-night: #071a12;
+  --c-red: #d62839;
 
   /* The picture behind every scene. */
   --backdrop: url("/theme/background.webp");
@@ -46,12 +47,12 @@
 }
 .tone-green {
   --card-bg: var(--c-green);
-  --card-fg: #3d2409;
-  --card-accent: var(--c-bark);
+  --card-fg: var(--c-cream);
+  --card-accent: var(--c-yellow);
 }
 .tone-teal {
   --card-bg: var(--c-teal);
-  --card-fg: #0f3327;
+  --card-fg: #06231f;
   --card-accent: var(--c-cream);
 }
 .tone-yellow {
