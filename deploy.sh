@@ -12,10 +12,30 @@ DATA_DIR="${DATA_DIR:-$DIR/data}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing $1. Install it first." >&2; exit 1; }; }
 need git
-need node
-if [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -lt 22 ]; then
-  echo "Telecast needs Node 22 or newer. This machine has $(node -v)." >&2
-  exit 1
+
+# Node 22 or newer, downloaded into ~/.local/node if this machine doesn't have one.
+# The build step runs build.ts directly, which needs Node's built-in TypeScript support.
+NODE_DIR="${NODE_DIR:-$HOME/.local/node}"
+[ -x "$NODE_DIR/bin/node" ] && export PATH="$NODE_DIR/bin:$PATH"   # a Node an earlier run installed
+node_major() {
+  command -v node >/dev/null 2>&1 || { echo 0; return; }
+  node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || echo 0
+}
+
+if [ "$(node_major)" -lt 22 ]; then
+  case "$(uname -m)" in
+    x86_64|amd64) arch=x64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) echo "Don't know how to install Node for $(uname -m)." >&2; exit 1 ;;
+  esac
+  fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1"; else wget -qO- "$1"; fi; }
+  echo "==> This machine has $(command -v node >/dev/null 2>&1 && node -v || echo no node). Getting Node 22 into $NODE_DIR"
+  tarball=$(fetch https://nodejs.org/dist/latest-v22.x/ | grep -o "node-v22\.[0-9.]*-linux-$arch\.tar\.xz" | head -1)
+  [ -n "$tarball" ] || { echo "Couldn't find a Node 22 build to download." >&2; exit 1; }
+  mkdir -p "$NODE_DIR"
+  fetch "https://nodejs.org/dist/latest-v22.x/$tarball" | tar -xJ -C "$NODE_DIR" --strip-components=1
+  export PATH="$NODE_DIR/bin:$PATH"
+  echo "==> Using $(node -v) from $NODE_DIR"
 fi
 
 if [ -d "$DIR/.git" ]; then
