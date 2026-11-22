@@ -2,6 +2,17 @@
  * The organisers' control panel. Each form edits one section of the shared state and saves it with
  * a PATCH; the server then pushes the result to every screen (and back here) at once.
  */
+// A panel that dies while booting looks exactly like a panel that is broken, with no clue why.
+// Say what happened on the page instead of leaving an inert form.
+function complain(what: string) {
+  const box = document.getElementById("bootError");
+  if (!box) return;
+  box.hidden = false;
+  box.textContent = `The panel hit an error: ${what}. Reload the page, and tell Jacob if it keeps happening.`;
+}
+addEventListener("error", (event) => complain((event as ErrorEvent).message || "unknown error"));
+addEventListener("unhandledrejection", (event) => complain(String((event as PromiseRejectionEvent).reason ?? "unknown error")));
+
 import type { Content, Me, ScheduleItem, Scene, State } from "../shared/types.ts";
 import { $, $$, connect } from "./live.ts";
 

@@ -355,15 +355,20 @@ mascot.addEventListener("animationiteration", () => {
 /* ---------- connection ---------- */
 
 let seenState = false;
+/** The revision already on screen, so the poll below doesn't redraw what the socket just sent. */
+let lastRev = -1;
 
 function onMessage(message: ServerMessage) {
   if (message.type === "reload") return location.reload();
   if (message.type !== "state") return;
-  seenState = true;
   // A new build means new display code, so pick it up.
   if (build && message.build !== build) return location.reload();
-  build = message.build;
   clockOffset = message.now - Date.now();
+  // The socket and the poll both arrive here; only a new revision means the screen is out of date.
+  if (seenState && message.state.rev === lastRev) return;
+  seenState = true;
+  lastRev = message.state.rev;
+  build = message.build;
   if (!config || config.timeZone !== message.config.timeZone) setTimeZone(message.config.timeZone);
   config = message.config;
   document.title = config.eventName;
@@ -391,11 +396,14 @@ async function prime(): Promise<void> {
 const role: Role = new URLSearchParams(location.search).has("preview") ? "control" : "display";
 const live = connect(role, onMessage);
 
-// Draw straight away, then keep checking while the socket is quiet or was never let through.
+// Draw straight away, then keep asking over plain HTTP.
+//
+// A venue proxy can leave the socket looking healthy (pings answer) while the state the panel sends
+// never gets through, and the old check only fell back once the socket went quiet, so the screen sat
+// on an old scene until somebody reloaded the tab. Asking every few seconds costs one small request
+// and means the screens follow the panel whatever the network is doing to WebSockets.
 void prime();
-setInterval(() => {
-  if (!seenState || live.silence() > 40_000) void prime();
-}, 8000);
+setInterval(() => void prime(), 3000);
 
 // A page kept in the browser's back/forward cache shouldn't go on counting as a connected screen.
 addEventListener("pagehide", () => live.close());
