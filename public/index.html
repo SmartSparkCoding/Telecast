@@ -79,6 +79,14 @@
         </article>
       </section>
 
+      <section class="scene gallery" data-scene="gallery">
+        <div class="gallery-wrap">
+          <p class="gallery-title" id="galleryTitle"></p>
+          <div class="gallery-grid" id="galleryGrid" data-layout="1"></div>
+          <p class="gallery-empty" id="galleryEmpty" hidden>No pictures yet. Add them on the control panel.</p>
+        </div>
+      </section>
+
       <section class="scene embed" data-scene="embed">
         <iframe
           id="embedFrame"
@@ -107,6 +115,7 @@
       </div>
 
       <p class="offline" id="offline" hidden>Reconnecting…</p>
+      <p class="debug" id="debug" hidden></p>
     </main>
     <noscript>
       <p class="offline">This screen needs JavaScript. Enable it, or check the browser's policy, then reload.</p>

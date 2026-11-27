@@ -3,7 +3,7 @@
  * pushes changes to browsers over WebSockets.
  */
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
@@ -16,6 +16,7 @@ declare const __BUILD_ID__: string;
 const PUBLIC = path.join(__dirname, "public");
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
+const IMAGE_DIR = path.join(DATA_DIR, "images");
 const PORT = Number(process.env.PORT) || 8080;
 
 const MIME: Record<string, string> = {
@@ -68,6 +69,17 @@ const host: Host = {
 
   displays: () => [...sockets.values()].filter((page) => page.role === "display").length,
 
+  async saveImage(bytes, ext) {
+    const name = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    await mkdir(IMAGE_DIR, { recursive: true });
+    await writeFile(path.join(IMAGE_DIR, name), Buffer.from(bytes));
+    return `/images/${name}`;
+  },
+
+  async removeImage(url) {
+    await rm(path.join(IMAGE_DIR, path.basename(url)), { force: true });
+  },
+
   screens: () => [
     ...new Set(
       [...sockets.values()]
@@ -106,7 +118,8 @@ async function toRequest(req: http.IncomingMessage): Promise<Request> {
     let size = 0;
     for await (const chunk of req as AsyncIterable<Buffer>) {
       size += chunk.length;
-      if (size > 200_000) break;
+      // A shrunk screenshot is a few hundred kB; JSON edits are capped separately.
+      if (size > 8_000_000) break;
       chunks.push(chunk);
     }
     body = Buffer.concat(chunks);
@@ -122,6 +135,28 @@ async function sendResponse(res: http.ServerResponse, response: Response): Promi
   const cookies = response.headers.getSetCookie();
   if (cookies.length) res.setHeader("Set-Cookie", cookies);
   res.end(Buffer.from(await response.arrayBuffer()));
+}
+
+/** Uploaded pictures live outside public/, so a redeploy never wipes them. */
+async function serveImage(req: http.IncomingMessage, res: http.ServerResponse, pathname: string) {
+  // basename only: no "..", no subdirectories, nothing outside the image folder.
+  const name = path.basename(decodeURIComponent(pathname));
+  const file = path.join(IMAGE_DIR, name);
+  try {
+    const info = await stat(file);
+    if (!info.isFile()) throw new Error("not a file");
+    res.writeHead(200, {
+      "Content-Type": MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream",
+      "Content-Length": info.size,
+      // The name carries a random id, so a cached copy is always the right one.
+      "Cache-Control": "public, max-age=604800, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+    if (req.method === "HEAD") return void res.end();
+    createReadStream(file).pipe(res);
+  } catch {
+    res.writeHead(404, { "Content-Type": "text/plain" }).end("Not found");
+  }
 }
 
 async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string) {
@@ -158,6 +193,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
       return void res.writeHead(405, { "Content-Type": "text/plain" }).end("Method not allowed");
     }
+    if (pathname.startsWith("/images/")) return await serveImage(req, res, pathname);
     await serveStatic(req, res, pathname);
   } catch (err) {
     console.error(err);

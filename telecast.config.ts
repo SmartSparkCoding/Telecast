@@ -36,7 +36,8 @@ const config: TelecastConfig = {
       doneText: "The Fair is open!",
     },
 
-    embed: {
+    gallery: { title: "Christmas Fair", seconds: 8, images: [] },
+  embed: {
       url: "https://pfa.navaratne.uk/",
       showClock: false,
     },

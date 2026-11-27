@@ -37,6 +37,7 @@
             <button type="button" data-scene="schedule">Schedule</button>
             <button type="button" data-scene="countdown">Countdown</button>
             <button type="button" data-scene="message">Message</button>
+            <button type="button" data-scene="gallery">Pictures</button>
             <button type="button" data-scene="embed">Website</button>
             <button type="button" data-scene="rotate">Rotation</button>
           </div>
@@ -158,6 +159,28 @@
           </div>
         </form>
 
+        <form class="panel" data-section="gallery">
+          <h2>Picture scroll <small>fills the screen by itself</small></h2>
+          <label>Heading <input data-field="title" maxlength="60" placeholder="Christmas Fair" /></label>
+          <label>Seconds on each <input type="number" data-field="seconds" min="3" max="120" /></label>
+          <div class="gallery-add">
+            <label class="button ghost file-button">
+              Choose pictures
+              <input id="galleryFiles" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden />
+            </label>
+            <button class="button ghost" type="button" id="galleryClear">Remove all</button>
+          </div>
+          <p class="hint" id="galleryHint">
+            Up to 50 pictures. They are shrunk here before they are sent, so phone photos are fine.
+            The biggest pictures get a screen of their own and the rest share a grid.
+          </p>
+          <ul class="gallery-thumbs" id="galleryThumbs"></ul>
+          <div class="actions">
+            <button class="button" type="submit">Save</button>
+            <button class="button ghost" type="submit" data-show="gallery">Save &amp; show</button>
+          </div>
+        </form>
+
         <form class="panel" data-section="rotate">
           <h2>Rotation <small>cycles through scenes by itself</small></h2>
           <fieldset class="checks" id="rotateScenes">
@@ -166,6 +189,7 @@
             <label class="check"><input type="checkbox" value="schedule" /> Schedule</label>
             <label class="check"><input type="checkbox" value="countdown" /> Countdown</label>
             <label class="check"><input type="checkbox" value="message" /> Message</label>
+            <label class="check"><input type="checkbox" value="gallery" /> Pictures</label>
             <label class="check"><input type="checkbox" value="embed" /> Website</label>
           </fieldset>
           <label>Seconds on each <input type="number" data-field="seconds" min="5" max="3600" /></label>

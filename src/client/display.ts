@@ -2,7 +2,7 @@
  * The screen itself. It holds no state of its own: the server streams the current state and this
  * file draws it, so a change in the control panel shows up on every screen straight away.
  */
-import type { Card, PublicConfig, Role, Scene, ServerMessage, State } from "../shared/types.ts";
+import type { Card, GalleryImage, PublicConfig, Role, Scene, ServerMessage, State } from "../shared/types.ts";
 import { $, $$, connect } from "./live.ts";
 
 const stage = $("#stage");
@@ -247,6 +247,101 @@ function renderTicker(s: State) {
 
 /* ---------- render ---------- */
 
+/* ---------- image scroll ---------- */
+
+interface GalleryPage {
+  tiles: GalleryImage[];
+  layout: 1 | 2 | 3 | 4;
+}
+
+let galleryPages: GalleryPage[] = [];
+let galleryPage = 0;
+let gallerySignature = "";
+let galleryShownAt = 0;
+
+/**
+ * Decides how many pictures share a screen. The best shot gets a screen of its own; the rest are
+ * grouped, so a mixture of sizes still fills the frame instead of leaving gaps. "Best" is pixel
+ * count first and shape second, because a 4000px panorama shrunk into a quarter of the screen is a
+ * waste of a good picture.
+ */
+function paginate(images: GalleryImage[]): GalleryPage[] {
+  const pixels = (image: GalleryImage) => Math.max(1, image.width * image.height);
+  const aspect = (image: GalleryImage) => image.width / Math.max(1, image.height);
+  const ordered = images
+    .map((image, index) => ({ image, index }))
+    .sort((a, b) => pixels(b.image) - pixels(a.image) || a.index - b.index)
+    .map((entry) => entry.image);
+  const median = [...ordered.map(pixels)].sort((a, b) => a - b)[Math.floor(ordered.length / 2)] ?? 1;
+
+  const pages: GalleryPage[] = [];
+  let i = 0;
+  while (i < ordered.length) {
+    const left = ordered.length - i;
+    const lead = ordered[i]!;
+    const star = pixels(lead) >= median * 1.75 || aspect(lead) >= 1.9;
+    if (left === 1 || (star && left >= 2)) {
+      pages.push({ tiles: [lead], layout: 1 });
+      i += 1;
+    } else if (left === 2) {
+      pages.push({ tiles: ordered.slice(i, i + 2), layout: 2 });
+      i += 2;
+    } else if (left === 3) {
+      pages.push({ tiles: ordered.slice(i, i + 3), layout: 3 });
+      i += 3;
+    } else {
+      pages.push({ tiles: ordered.slice(i, i + 4), layout: 4 });
+      i += 4;
+    }
+  }
+  return pages;
+}
+
+function drawGalleryPage() {
+  const grid = $("#galleryGrid");
+  const page = galleryPages[galleryPage % Math.max(1, galleryPages.length)];
+  if (!page) return;
+  grid.dataset.layout = String(page.layout);
+  grid.replaceChildren(
+    ...page.tiles.map((image) => {
+      const figure = document.createElement("figure");
+      figure.className = "gallery-tile";
+      const img = document.createElement("img");
+      img.src = image.url;
+      img.alt = "";
+      img.decoding = "async";
+      figure.append(img);
+      return figure;
+    }),
+  );
+}
+
+function renderGallery(s: State) {
+  setText($("#galleryTitle"), s.gallery.title);
+  const signature = s.gallery.images.map((image) => image.id).join(",");
+  if (signature !== gallerySignature) {
+    gallerySignature = signature;
+    galleryPages = paginate(s.gallery.images);
+    galleryPage = 0;
+    galleryShownAt = now();
+    drawGalleryPage();
+  }
+  $("#galleryGrid").hidden = !galleryPages.length;
+  $("#galleryEmpty").hidden = Boolean(galleryPages.length);
+}
+
+/** Called from the clock tick: move on when the scene is showing and its time is up. */
+function advanceGallery(s: State) {
+  if (currentScene(s) !== "gallery" || galleryPages.length < 2) {
+    galleryShownAt = now();
+    return;
+  }
+  if (now() - galleryShownAt < Math.max(3, s.gallery.seconds) * 1000) return;
+  galleryShownAt = now();
+  galleryPage = (galleryPage + 1) % galleryPages.length;
+  drawGalleryPage();
+}
+
 function render(s: State) {
   setText($("#idleMessage"), s.idle.message);
   $("#stickers").classList.toggle("off", !s.idle.stickers);
@@ -255,6 +350,7 @@ function render(s: State) {
   fillCard($("#messageCard"), s.message);
   setText($("#countdownLabel"), s.countdown.label);
   renderSchedule(s);
+  renderGallery(s);
   renderTicker(s);
 
   // Only keep a website loaded while it can actually appear, so it isn't running behind other scenes.
@@ -284,6 +380,7 @@ function tick() {
   updateScheduleMarkers(state);
   updateCountdown(state);
   updateAlert(state);
+  advanceGallery(state);
 }
 
 /* ---------- decoration ---------- */
@@ -369,6 +466,10 @@ function onMessage(message: ServerMessage) {
   seenState = true;
   lastRev = message.state.rev;
   build = message.build;
+  const debug = document.getElementById("debug");
+  if (debug && !debug.hidden) {
+    debug.textContent = `rev ${message.state.rev} · scene ${message.state.scene} · ${message.config.eventName}`;
+  }
   if (!config || config.timeZone !== message.config.timeZone) setTimeZone(message.config.timeZone);
   config = message.config;
   document.title = config.eventName;
@@ -385,7 +486,7 @@ function onMessage(message: ServerMessage) {
  */
 async function prime(): Promise<void> {
   try {
-    const res = await fetch("/api/state", { cache: "no-store" });
+    const res = await fetch(`/api/state?_=${Date.now()}`, { cache: "no-store" });
     if (res.ok) onMessage((await res.json()) as ServerMessage);
   } catch {
     // Offline, or the server restarted. The loop below tries again.
@@ -400,15 +501,21 @@ async function prime(): Promise<void> {
 const NAME_KEY = "telecast.screenName";
 
 function screenName(): string {
-  const saved = localStorage.getItem(NAME_KEY)?.trim();
-  if (saved) return saved;
-  const answer = (prompt("What's this screen called?", "Screen") ?? "").trim().slice(0, 40);
-  const name = answer || "Unnamed screen";
-  localStorage.setItem(NAME_KEY, name);
-  return name;
+  try {
+    const saved = localStorage.getItem(NAME_KEY)?.trim();
+    if (saved) return saved;
+    const answer = (prompt("What's this screen called?", "Screen") ?? "").trim().slice(0, 40);
+    const name = answer || "Unnamed screen";
+    localStorage.setItem(NAME_KEY, name);
+    return name;
+  } catch {
+    // Storage or prompts turned off by whoever manages the machine: the screen still has to run.
+    return "Screen";
+  }
 }
 
 const role: Role = new URLSearchParams(location.search).has("preview") ? "control" : "display";
+if (new URLSearchParams(location.search).has("debug")) $("#debug").hidden = false;
 const live = connect(role, onMessage, undefined, role === "display" ? () => ({ type: "hello", name: screenName() }) : undefined);
 
 // Draw straight away, then keep asking over plain HTTP.
