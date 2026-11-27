@@ -4,7 +4,8 @@
  * code runs under Node (Docker) and in a Cloudflare Durable Object.
  */
 import config from "../../telecast.config.ts";
-import type { Me, Person, PersonRole, PublicConfig, Role, ServerMessage, State } from "../shared/types.ts";
+import { MAX_IMAGE_BYTES, MAX_IMAGES } from "../shared/types.ts";
+import type { GalleryImage, Me, Person, PersonRole, PublicConfig, Role, ServerMessage, State } from "../shared/types.ts";
 import { cookie, randomToken, readCookie, seal, unseal } from "./session.ts";
 import { applyPatch, freshState, newAlert, restoreState } from "./state.ts";
 
@@ -33,6 +34,10 @@ export interface Host {
   displays(): number;
   /** Names of the screens that are connected, when the host knows them. */
   screens?(): string[];
+  /** Stores a picture and returns the URL it can be fetched from. Absent on hosts with no disk. */
+  saveImage?(bytes: ArrayBuffer, ext: string): Promise<string>;
+  /** Deletes a picture saved by `saveImage`. */
+  removeImage?(url: string): Promise<void>;
   /** Asks for `alarm()` to be called at this time; null cancels. */
   wake(at: number | null): void | Promise<void>;
 }
@@ -51,6 +56,13 @@ const SESSION_DAYS = 7;
 
 /** Used when TELECAST_PIN isn't set, so a fresh clone still opens. The host warns about it at boot. */
 const FALLBACK_PIN = "000000";
+
+/** What the upload route will store, by content type. */
+const EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 
 /** Wrong PINs allowed from one address inside TRY_WINDOW before it has to wait. */
 const TRIES = 8;
@@ -426,11 +438,57 @@ export class Telecast {
     throw new HttpError(404, "Not found");
   }
 
+  /** Takes the raw bytes of a shrunk screenshot and puts it in the scroll. */
+  private async uploadImage(request: Request, url: URL): Promise<Response> {
+    if (!this.host.saveImage) throw new HttpError(501, "Uploading needs the Node build, which has a disk");
+    if (this.state.gallery.images.length >= MAX_IMAGES) {
+      throw new HttpError(400, `${MAX_IMAGES} pictures is the limit. Remove one before adding another.`);
+    }
+    const type = (request.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+    const ext = EXTENSIONS[type];
+    if (!ext) throw new HttpError(415, "Send a JPEG, PNG or WebP picture");
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength > MAX_IMAGE_BYTES) throw new HttpError(413, "That picture is too big, even after shrinking");
+    if (bytes.byteLength < 200) throw new HttpError(400, "That picture came through empty");
+
+    const size = (name: string, fallback: number) => {
+      const value = Number(url.searchParams.get(name));
+      return Number.isFinite(value) && value >= 1 ? Math.min(20_000, Math.round(value)) : fallback;
+    };
+    const image: GalleryImage = {
+      id: randomToken(6),
+      url: await this.host.saveImage(bytes, ext),
+      width: size("w", 1600),
+      height: size("h", 900),
+    };
+    this.state.gallery.images.push(image);
+    await this.commit();
+    return json(200, { image, count: this.state.gallery.images.length });
+  }
+
+  private async removeImage(id: string): Promise<Response> {
+    const image = this.state.gallery.images.find((i) => i.id === id);
+    if (!image) throw new HttpError(404, "That picture isn't in the scroll any more");
+    this.state.gallery.images = this.state.gallery.images.filter((i) => i !== image);
+    await this.host.removeImage?.(image.url).catch((err: Error) => console.error("Could not delete a picture:", err.message));
+    await this.commit();
+    return json(200, { ok: true, count: this.state.gallery.images.length });
+  }
+
   private async api(request: Request, url: URL): Promise<Response> {
     const route = `${request.method} ${url.pathname}`;
 
     // What's on screen is public by nature, so reading it needs no sign-in.
-    if (route === "GET /api/state") return new Response(this.stateMessage(), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    if (route === "GET /api/state") {
+      return new Response(this.stateMessage(), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, max-age=0",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      });
+    }
     if (route === "GET /api/health") return json(200, { ok: true, displays: this.host.displays(), pin: Boolean((this.env.TELECAST_PIN ?? "").trim()) });
 
     if (route === "GET /api/me") {
@@ -449,9 +507,20 @@ export class Telecast {
       return await this.peopleRoute(request, url, me);
     }
 
+    if (url.pathname === "/api/images" && request.method === "POST") {
+      await this.user(request);
+      return await this.uploadImage(request, url);
+    }
+
+    if (url.pathname.startsWith("/api/images/") && request.method === "DELETE") {
+      await this.user(request);
+      return await this.removeImage(decodeURIComponent(url.pathname.slice("/api/images/".length)));
+    }
+
     await this.user(request);
 
-    if (route === "PATCH /api/state") {
+    // Panels behind a school proxy often lose PATCH on the way out, so a plain POST does the same.
+    if (route === "PATCH /api/state" || route === "POST /api/state") {
       applyPatch(this.state, await readJson(request));
       await this.commit();
       return json(200, { ok: true, rev: this.state.rev });

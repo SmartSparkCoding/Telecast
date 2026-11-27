@@ -13,7 +13,7 @@ function complain(what: string) {
 addEventListener("error", (event) => complain((event as ErrorEvent).message || "unknown error"));
 addEventListener("unhandledrejection", (event) => complain(String((event as PromiseRejectionEvent).reason ?? "unknown error")));
 
-import type { Content, Me, ScheduleItem, Scene, State } from "../shared/types.ts";
+import type { Content, GalleryImage, Me, ScheduleItem, Scene, State } from "../shared/types.ts";
 import { $, $$, connect } from "./live.ts";
 
 type Section = Exclude<keyof Content, "scene">;
@@ -25,8 +25,11 @@ let me: Me | null = null;
 /* ---------- talking to the server ---------- */
 
 async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  // Venue proxies sometimes drop PATCH and DELETE-less writes along with them, so state changes go
+  // out as a POST, which the server accepts as the same thing.
+  const verb = method === "PATCH" ? "POST" : method;
   const res = await fetch(path, {
-    method,
+    method: verb,
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -140,6 +143,7 @@ function collect(form: HTMLFormElement): Record<string, unknown> {
       }),
     );
   }
+  if (section === "gallery") data.images = state?.gallery.images ?? [];
   if (section === "rotate") {
     const scenes = $$<HTMLInputElement>("#rotateScenes input:checked").map((el) => el.value);
     if (!scenes.length) throw new Error("Pick at least one scene to rotate through");
@@ -178,6 +182,7 @@ function fill(form: HTMLFormElement, s: State) {
     $("#items").replaceChildren();
     s.schedule.items.forEach(addItem);
   }
+  if (section === "gallery") renderThumbs(s.gallery.images);
   if (section === "rotate") {
     for (const el of $$<HTMLInputElement>("#rotateScenes input")) {
       el.checked = s.rotate.scenes.includes(el.value as Scene);
@@ -255,6 +260,98 @@ $("#reset").addEventListener("click", () => {
   void run(() => api("POST", "/api/reset"), "Everything reset");
 });
 
+/* ---------- pictures ---------- */
+
+const MAX_PIXELS = 1920;
+
+function renderThumbs(images: GalleryImage[]) {
+  const list = $("#galleryThumbs");
+  list.replaceChildren(
+    ...images.map((image) => {
+      const li = document.createElement("li");
+      const img = document.createElement("img");
+      img.src = image.url;
+      img.alt = "";
+      img.loading = "lazy";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "thumb-remove";
+      remove.textContent = "×";
+      remove.title = "Remove this picture";
+      remove.addEventListener("click", () => void run(() => api("DELETE", `/api/images/${image.id}`), "Removed"));
+      li.append(img, remove);
+      return li;
+    }),
+  );
+  $("#galleryClear").hidden = !images.length;
+  $("#galleryHint").textContent = images.length
+    ? `${images.length} of 50 pictures. The biggest get a screen of their own.`
+    : "Up to 50 pictures. They are shrunk here before they are sent, so phone photos are fine.";
+}
+
+/** Shrinks a picture in the browser, so a 12MP phone photo doesn't crawl through the venue wifi. */
+async function shrink(file: File): Promise<{ blob: Blob; width: number; height: number } | null> {
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap) return null;
+  const scale = Math.min(1, MAX_PIXELS / Math.max(bitmap.width, bitmap.height));
+  const width = Math.round(bitmap.width * scale);
+  const height = Math.round(bitmap.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.86));
+  return blob ? { blob, width, height } : null;
+}
+
+$<HTMLInputElement>("#galleryFiles").addEventListener("change", (event) => {
+  const input = event.currentTarget as HTMLInputElement;
+  const files = [...(input.files ?? [])];
+  input.value = "";
+  if (!files.length) return;
+  void run(async () => {
+    let added = 0;
+    for (const file of files) {
+      const shrunk = await shrink(file);
+      if (!shrunk) {
+        toast(`${file.name} isn't a picture I can read`, true);
+        continue;
+      }
+      const res = await fetch(`/api/images?w=${shrunk.width}&h=${shrunk.height}`, {
+        method: "POST",
+        headers: { "Content-Type": "image/jpeg" },
+        body: shrunk.blob,
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; count?: number };
+      if (res.status === 401) {
+        showSignIn(data.error);
+        throw new Error(data.error ?? "Sign in to add pictures");
+      }
+      if (!res.ok) throw new Error(data.error ?? "That picture didn't upload");
+      added += 1;
+    }
+    formFor("gallery").dataset.dirty = "";
+    if (state) renderThumbs(state.gallery.images);
+    void prime();
+    toast(`${added} ${added === 1 ? "picture" : "pictures"} added`);
+  });
+});
+
+$("#galleryClear").addEventListener("click", () => {
+  const images = state?.gallery.images ?? [];
+  if (!images.length) return;
+  if (!confirm(`Remove all ${images.length} pictures?`)) return;
+  void run(async () => {
+    for (const image of images) await api("DELETE", `/api/images/${image.id}`);
+    delete formFor("gallery").dataset.dirty;
+    if (state) renderThumbs(state.gallery.images);
+    void prime();
+  }, "Pictures removed");
+});
+
 /* ---------- live updates ---------- */
 
 let displays = 0;
@@ -280,14 +377,45 @@ function render(s: State) {
   $("#clearAlert").hidden = !s.alert;
 }
 
+let lastRev = -1;
+
+function applyState(next: State, config?: { eventName: string }) {
+  if (next.rev === lastRev) return;
+  lastRev = next.rev;
+  state = next;
+  if (config) {
+    $("#eventName").textContent = config.eventName;
+    document.title = `Telecast · ${config.eventName}`;
+  }
+  render(next);
+}
+
+/**
+ * The socket is the fast path, but a venue proxy can hold it open while swallowing everything sent
+ * down it, which used to leave the panel showing empty forms. So the panel also asks for the state
+ * over plain HTTP every few seconds and takes whichever arrives first.
+ */
+async function prime() {
+  try {
+    const res = await fetch(`/api/state?_=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { state?: State; config?: { eventName: string } };
+    if (data.state) applyState(data.state, data.config);
+  } catch {
+    // A dropped poll is not worth a message; the next one is three seconds away.
+  }
+}
+
+setInterval(() => {
+  if (!document.hidden) void prime();
+}, 3000);
+void prime();
+
 connect(
   "control",
   (message) => {
     if (message.type === "state") {
-      state = message.state;
-      $("#eventName").textContent = message.config.eventName;
-      document.title = `Telecast · ${message.config.eventName}`;
-      render(state);
+      applyState(message.state, message.config);
     } else if (message.type === "stats") {
       displays = message.displays;
       renderStatus();

@@ -1,5 +1,6 @@
 /** Turns whatever a request sent into well-formed state. */
 import { SCENES, TONES } from "../shared/types.ts";
+import { MAX_IMAGES } from "../shared/types.ts";
 import type { Alert, Card, Content, Scene, State, Tone } from "../shared/types.ts";
 
 type Loose = Record<string, unknown>;
@@ -60,6 +61,27 @@ const sanitise: { [K in keyof Content]: (value: unknown, current: Content[K]) =>
     return {
       url: typeof v.url === "string" ? httpUrl(v.url) : cur.url,
       showClock: bool(v.showClock, cur.showClock),
+    };
+  },
+
+  gallery: (raw, cur) => {
+    const v = obj(raw);
+    const clean = Array.isArray(v.images)
+      ? v.images
+          .slice(0, MAX_IMAGES)
+          .map(obj)
+          .map((i) => ({
+            id: str(i.id, 40).trim(),
+            url: /^(\/images\/|https?:\/\/)/i.test(str(i.url, 500)) ? str(i.url, 500) : "",
+            width: Math.round(num(i.width, 1, 20_000, 1600)),
+            height: Math.round(num(i.height, 1, 20_000, 900)),
+          }))
+          .filter((i) => i.id && i.url)
+      : cur.images;
+    return {
+      title: str(v.title, 60, cur.title),
+      seconds: Math.round(num(v.seconds, 3, 120, cur.seconds)),
+      images: clean,
     };
   },
 

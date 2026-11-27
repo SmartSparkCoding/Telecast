@@ -1,6 +1,6 @@
 /** Types shared by the server, both hosts and the two browser pages. */
 
-export const SCENES = ["idle", "schedule", "countdown", "message", "embed", "rotate"] as const;
+export const SCENES = ["idle", "schedule", "countdown", "message", "embed", "gallery", "rotate"] as const;
 export type Scene = (typeof SCENES)[number];
 
 export const TONES = ["orange", "green", "teal", "yellow", "red"] as const;
@@ -12,6 +12,20 @@ export interface ScheduleItem {
   title: string;
   detail: string;
 }
+
+/** One picture in the image scroll. Uploaded files sit under /images/ on the Node host. */
+export interface GalleryImage {
+  id: string;
+  url: string;
+  width: number;
+  height: number;
+}
+
+/** How many pictures the scroll takes. Any more and the state file gets silly. */
+export const MAX_IMAGES = 50;
+
+/** A picture bigger than this is refused even after the browser has shrunk it. */
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 export interface Card {
   kicker: string;
@@ -35,6 +49,8 @@ export interface Content {
   message: Card;
   countdown: { label: string; target: number; doneText: string };
   embed: { url: string; showClock: boolean };
+  /** Pages of pictures that move on by themselves, laid out by how good each one is. */
+  gallery: { title: string; seconds: number; images: GalleryImage[] };
   schedule: { title: string; platform: string; items: ScheduleItem[] };
   /** Cycles through these scenes; every screen switches at the same moment. */
   rotate: { seconds: number; scenes: Scene[] };

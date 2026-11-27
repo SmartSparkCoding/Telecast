@@ -680,6 +680,126 @@ h2 {
   font-size: 3rem;
 }
 
+/* ---------- image scroll ---------- */
+
+.gallery {
+  padding: 2.4rem 3rem calc(var(--ticker-h) + 1.6rem);
+  transform: none;
+  align-content: center;
+}
+
+.gallery-wrap {
+  display: grid;
+  gap: 1.4rem;
+  height: 100%;
+  min-height: 0;
+  align-content: center;
+}
+
+.gallery-title {
+  margin: 0;
+  font-size: 3.2rem;
+  line-height: 1.05;
+  color: var(--c-cream);
+  text-shadow: 0 0.2rem 1.2rem rgb(4 16 20 / 0.8);
+}
+
+.gallery-title:empty {
+  display: none;
+}
+
+.gallery-grid {
+  display: grid;
+  gap: 1.4rem;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+}
+
+.gallery-grid[data-layout="1"] {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+.gallery-grid[data-layout="2"] {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+}
+
+/* Three: one big picture left, two stacked beside it. */
+.gallery-grid[data-layout="3"] {
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.gallery-grid[data-layout="3"] .gallery-tile:first-child {
+  grid-row: span 2;
+}
+
+.gallery-grid[data-layout="4"] {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.gallery-tile {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 1.4rem;
+  background: rgb(4 16 20 / 0.55);
+  box-shadow:
+    0 1.2rem 3rem rgb(4 16 20 / 0.5),
+    inset 0 0 0 1px rgb(247 236 215 / 0.16);
+  animation: tile-in 0.7s ease both;
+}
+
+.gallery-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: scale(1.015);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.gallery-empty {
+  margin: 0;
+  font-size: 2.6rem;
+  color: var(--c-cream);
+  opacity: 0.75;
+}
+
+.debug {
+  position: absolute;
+  right: 1rem;
+  bottom: calc(var(--ticker-h) + 0.6rem);
+  margin: 0;
+  padding: 0.3rem 0.8rem;
+  border-radius: 0.6rem;
+  background: rgb(4 16 20 / 0.8);
+  color: var(--c-cream);
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+  z-index: 40;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery-tile {
+    animation: none;
+  }
+}
+
 /* ---------- always-on furniture ---------- */
 
 .chrome {
