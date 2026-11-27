@@ -683,7 +683,7 @@ h2 {
 /* ---------- image scroll ---------- */
 
 .gallery {
-  padding: 2.4rem 3rem calc(var(--ticker-h) + 1.6rem);
+  padding: 9.6rem 3.5rem calc(var(--ticker-h) + 1.4rem);
   transform: none;
   align-content: center;
 }
